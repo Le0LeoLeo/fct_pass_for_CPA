@@ -109,41 +109,9 @@ QIANFAN_API_KEY=bce-v3/your-api-key-here
 - Firebase Firestore資料讀取
 - 動態資料載入
 
-## GitHub 推送
-
-### 快速推送
-
-**Windows PowerShell:**
-```powershell
-.\push-to-github.ps1
-```
-
-**Windows CMD:**
-```cmd
-push-to-github.bat
-```
-
-**Linux/Mac:**
-```bash
-chmod +x push-to-github.sh
-./push-to-github.sh
-```
-
-### 手動推送
-
-```bash
-git init
-git remote add origin https://github.com/Le0LeoLeo/fct_pass_for_CPA.git
-git branch -M main
-git add .
-git commit -m "更新專案"
-git push -u origin main
-```
-
 ## 注意事項
 
 1. 確保後端OCR服務正在運行（端口8000）
 2. 配置百度API密鑰以使用TTS/SST功能
 3. 配置Firebase以使用大學資料庫功能
 4. 瀏覽器需要允許麥克風權限以使用語音功能
-5. **不要提交敏感信息**（API密鑰、.env文件等）- 已配置 `.gitignore`
