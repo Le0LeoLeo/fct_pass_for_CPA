@@ -4,6 +4,11 @@
   import path from 'path';
 
   export default defineConfig({
+    // GitHub Pages 部署配置
+    // 通过环境变量 VITE_BASE_PATH 设置，如果没有设置则使用默认值
+    // 例如：如果仓库名是 'my-app'，设置环境变量 VITE_BASE_PATH=/my-app/
+    // 或者在 GitHub Actions 中设置，或创建 .env.production 文件
+    base: process.env.VITE_BASE_PATH || (process.env.NODE_ENV === 'production' ? '/AI-大學升學輔助應用/' : '/'),
     plugins: [react()],
     optimizeDeps: {
       include: ['@supabase/supabase-js'],
@@ -54,7 +59,7 @@
     },
     build: {
       target: 'esnext',
-      outDir: 'build',
+      outDir: 'dist',  // GitHub Pages 使用 dist 目录
     },
     server: {
       port: 3000,
