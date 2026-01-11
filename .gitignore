@@ -74,3 +74,64 @@ firestore-debug.log
 # Misc
 *.hprof
 *.log
+
+# Gradle
+.gradle/
+.gradle-wrapper/
+
+# Android
+.android/
+.javacpp/
+.skiko/
+
+# User home directories (should not be in project)
+AppData/
+Contacts/
+Documents/
+Downloads/
+Dropbox/
+Favorites/
+Links/
+OneDrive/
+"Saved Games/"
+Searches/
+NTUSER.*
+ntuser.*
+*.ini
+
+# Other cache/config
+.bun/
+.cache/
+.codex_cursor
+.config/
+.cursor/
+.cursor_free_data
+.cursor_info
+.emulator_console_auth_token
+.gitconfig
+.keras/
+.lesshst
+.marscode/
+.matplotlib/
+.ollama/
+.python_history
+.redhat/
+.ssh/
+.vscode/
+
+# Screenshots and test files
+*.png
+*.jpg
+*.jpeg
+screenshots/
+test_*.html
+test_*.png
+
+# Other project directories that shouldn't be committed
+ai_completion/
+api-worker/
+docs/
+mblock/
+ngrok/
+scoop/
+supabase/

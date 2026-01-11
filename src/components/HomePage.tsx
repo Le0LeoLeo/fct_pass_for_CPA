@@ -1,11 +1,50 @@
 import { BookOpen, ClipboardCheck, Bot, User, GraduationCap } from "lucide-react";
 import { motion } from "framer-motion";
+import { useState, useEffect } from "react";
+import { getUserStats } from "../services/supabase";
 
 interface HomePageProps {
   onNavigate: (page: string) => void;
+  user?: any;
 }
 
-export function HomePage({ onNavigate }: HomePageProps) {
+export function HomePage({ onNavigate, user }: HomePageProps) {
+  const [stats, setStats] = useState({
+    questionnaireProgress: { completed: 0, total: 5, progress: 0 },
+    interviewCount: 0,
+    interviewThisWeek: 0,
+    favoriteUniversities: 0,
+    viewedUniversities: 0,
+    recentActivities: [] as Array<{ type: string; title: string; time: string; id: string }>,
+    aiRecommendations: [] as Array<{ name: string; match: number }>,
+    weeklyTasks: { completed: 0, total: 4 },
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadStats = async () => {
+      try {
+        const userStats = await getUserStats();
+        setStats(userStats);
+      } catch (error) {
+        console.error('加载统计数据失败:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadStats();
+  }, []);
+  // 提取 Google 用戶名稱
+  const userName = 
+    user?.user_metadata?.full_name || 
+    user?.user_metadata?.name || 
+    (user?.user_metadata?.given_name && user?.user_metadata?.family_name 
+      ? `${user.user_metadata.given_name} ${user.user_metadata.family_name}` 
+      : null) ||
+    user?.user_metadata?.given_name ||
+    user?.email?.split('@')[0] || 
+    '用戶';
   const features = [
     {
       id: "university-database",
@@ -53,7 +92,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
               transition={{ delay: 0.2 }}
             >
               <p className="text-[11px] md:text-[14px] text-blue-100 mb-1 md:mb-2">歡迎回來</p>
-              <h2 className="text-[20px] md:text-[32px] text-white mb-2 md:mb-4">陳同學</h2>
+              <h2 className="text-[20px] md:text-[32px] text-white mb-2 md:mb-4">{userName}</h2>
               <p className="text-[12px] md:text-[16px] text-blue-100">繼續您的升學規劃旅程</p>
             </motion.div>
             <motion.div 
@@ -70,9 +109,22 @@ export function HomePage({ onNavigate }: HomePageProps) {
           {/* Quick Stats */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2 md:gap-4">
             {[
-              { label: "完成問卷", value: "3", total: "/5", progress: 60 },
-              { label: "面試練習", value: "12次", desc: "本週已練習 3 次" },
-              { label: "收藏學校", value: "8間", desc: "已瀏覽 25 間大學" }
+              { 
+                label: "完成問卷", 
+                value: loading ? "..." : String(stats.questionnaireProgress.completed), 
+                total: `/5`, 
+                progress: stats.questionnaireProgress.progress 
+              },
+              { 
+                label: "面試練習", 
+                value: loading ? "..." : `${stats.interviewCount}次`, 
+                desc: `本週已練習 ${stats.interviewThisWeek} 次` 
+              },
+              { 
+                label: "收藏學校", 
+                value: loading ? "..." : `${stats.favoriteUniversities}間`, 
+                desc: `已瀏覽 ${stats.viewedUniversities} 間大學` 
+              }
             ].map((stat, index) => (
               <motion.div
                 key={index}
@@ -154,34 +206,61 @@ export function HomePage({ onNavigate }: HomePageProps) {
             >
               <h3 className="text-[18px] md:text-[24px] text-gray-900 mb-4 md:mb-6">最近活動</h3>
               <div className="space-y-3 md:space-y-4">
-                {[
-                  { icon: ClipboardCheck, title: "完成性向測驗", time: "2 小時前", color: "blue" },
-                  { icon: ClipboardCheck, title: "模擬面試練習", time: "昨天", color: "purple" },
-                  { icon: BookOpen, title: "收藏台灣大學資工系", time: "3 天前", color: "green" }
-                ].map((activity, index) => {
-                  const Icon = activity.icon;
-                  return (
-                    <motion.div
-                      key={index}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: 0.6 + index * 0.1 }}
-                      whileHover={{ x: 5, transition: { duration: 0.2 } }}
-                      className={`flex items-center gap-3 md:gap-4 p-3 md:p-4 bg-${activity.color}-50 rounded-xl md:rounded-2xl cursor-pointer`}
-                    >
-                      <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full bg-${activity.color}-100 flex items-center justify-center flex-shrink-0`}>
-                        <Icon className={`w-5 h-5 md:w-6 md:h-6 text-${activity.color}-600`} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[14px] md:text-[16px] text-gray-900 truncate">{activity.title}</p>
-                        <p className="text-[12px] md:text-[14px] text-gray-500">{activity.time}</p>
-                      </div>
-                      <button className={`text-[12px] md:text-[14px] text-${activity.color}-600 hover:text-${activity.color}-700 flex-shrink-0`}>
-                        查看{index === 0 ? "結果" : index === 1 ? "回饋" : "詳情"}
-                      </button>
-                    </motion.div>
-                  );
-                })}
+                {loading ? (
+                  <div className="text-center py-8 text-gray-500">載入中...</div>
+                ) : stats.recentActivities.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">還沒有活動記錄</div>
+                ) : (
+                  stats.recentActivities.map((activity, index) => {
+                    const Icon = activity.type === 'questionnaire' ? ClipboardCheck : 
+                                activity.type === 'interview' ? ClipboardCheck : BookOpen;
+                    const color = activity.type === 'questionnaire' ? 'blue' : 
+                                 activity.type === 'interview' ? 'purple' : 'green';
+                    const actionText = activity.type === 'questionnaire' ? '結果' : 
+                                      activity.type === 'interview' ? '回饋' : '詳情';
+                    
+                    return (
+                      <motion.div
+                        key={activity.id || index}
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.6 + index * 0.1 }}
+                        whileHover={{ x: 5, transition: { duration: 0.2 } }}
+                        onClick={() => {
+                          if (activity.type === 'questionnaire') {
+                            onNavigate('questionnaire');
+                          } else if (activity.type === 'interview') {
+                            onNavigate('grades-and-practice');
+                          } else {
+                            onNavigate('university-database');
+                          }
+                        }}
+                        className={`flex items-center gap-3 md:gap-4 p-3 md:p-4 rounded-xl md:rounded-2xl cursor-pointer ${
+                          color === 'blue' ? 'bg-blue-50' : color === 'purple' ? 'bg-purple-50' : 'bg-green-50'
+                        }`}
+                      >
+                        <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center flex-shrink-0 ${
+                          color === 'blue' ? 'bg-blue-100' : color === 'purple' ? 'bg-purple-100' : 'bg-green-100'
+                        }`}>
+                          <Icon className={`w-5 h-5 md:w-6 md:h-6 ${
+                            color === 'blue' ? 'text-blue-600' : color === 'purple' ? 'text-purple-600' : 'text-green-600'
+                          }`} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[14px] md:text-[16px] text-gray-900 truncate">{activity.title}</p>
+                          <p className="text-[12px] md:text-[14px] text-gray-500">{activity.time}</p>
+                        </div>
+                        <button className={`text-[12px] md:text-[14px] flex-shrink-0 ${
+                          color === 'blue' ? 'text-blue-600 hover:text-blue-700' : 
+                          color === 'purple' ? 'text-purple-600 hover:text-purple-700' : 
+                          'text-green-600 hover:text-green-700'
+                        }`}>
+                          查看{actionText}
+                        </button>
+                      </motion.div>
+                    );
+                  })
+                )}
               </div>
             </motion.div>
           </div>
@@ -202,9 +281,9 @@ export function HomePage({ onNavigate }: HomePageProps) {
                   transition={{ type: "spring", stiffness: 200, delay: 0.5 }}
                   className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 rounded-full"
                 >
-                  <span className="text-[18px] text-blue-600">1</span>
+                  <span className="text-[18px] text-blue-600">{loading ? '...' : stats.weeklyTasks.completed}</span>
                   <span className="text-[14px] text-blue-500">/</span>
-                  <span className="text-[14px] text-gray-500">4</span>
+                  <span className="text-[14px] text-gray-500">{stats.weeklyTasks.total}</span>
                 </motion.div>
               </div>
               
@@ -217,12 +296,14 @@ export function HomePage({ onNavigate }: HomePageProps) {
               >
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[13px] text-gray-500">完成進度</span>
-                  <span className="text-[13px] text-blue-600">25%</span>
+                  <span className="text-[13px] text-blue-600">
+                    {loading ? '...' : Math.round((stats.weeklyTasks.completed / stats.weeklyTasks.total) * 100)}%
+                  </span>
                 </div>
                 <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                   <motion.div 
                     initial={{ width: 0 }}
-                    animate={{ width: "25%" }}
+                    animate={{ width: loading ? "0%" : `${(stats.weeklyTasks.completed / stats.weeklyTasks.total) * 100}%` }}
                     transition={{ delay: 0.7, duration: 0.8, ease: "easeOut" }}
                     className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full"
                   ></motion.div>
@@ -231,10 +312,22 @@ export function HomePage({ onNavigate }: HomePageProps) {
 
               <div className="space-y-3">
                 {[
-                  { done: true, text: "完成智能問卷" },
-                  { done: false, text: "練習 3 次面試" },
-                  { done: false, text: "瀏覽 5 間大學" },
-                  { done: false, text: "更新成績資料" }
+                  { 
+                    done: stats.questionnaireProgress.completed >= stats.questionnaireProgress.total, 
+                    text: "完成智能問卷" 
+                  },
+                  { 
+                    done: stats.interviewThisWeek >= 3, 
+                    text: `練習 3 次面試${stats.interviewThisWeek > 0 ? ` (${stats.interviewThisWeek}/3)` : ''}` 
+                  },
+                  { 
+                    done: stats.viewedUniversities >= 5, 
+                    text: `瀏覽 5 間大學${stats.viewedUniversities > 0 ? ` (${stats.viewedUniversities}/5)` : ''}` 
+                  },
+                  { 
+                    done: false, 
+                    text: "更新成績資料" 
+                  }
                 ].map((task, index) => (
                   <motion.div
                     key={index}
@@ -271,13 +364,17 @@ export function HomePage({ onNavigate }: HomePageProps) {
             >
               <h3 className="text-[20px] mb-3">AI 推薦</h3>
               <p className="text-[14px] text-purple-100 mb-4">
-                根據您的測驗結果，我們推薦以下科系：
+                {loading ? '載入中...' : stats.questionnaireProgress.completed >= stats.questionnaireProgress.total
+                  ? '根據您的測驗結果，我們推薦以下科系：'
+                  : '完成問卷後即可查看AI推薦'}
               </p>
               <div className="space-y-2">
-                {[
-                  { name: "資訊工程學系", match: 95 },
-                  { name: "電機工程學系", match: 88 }
-                ].map((dept, index) => (
+                {loading ? (
+                  <div className="text-purple-100 text-center py-4">載入中...</div>
+                ) : stats.aiRecommendations.length === 0 ? (
+                  <div className="text-purple-100 text-center py-4">請先完成問卷</div>
+                ) : (
+                  stats.aiRecommendations.slice(0, 2).map((dept, index) => (
                   <motion.div
                     key={index}
                     initial={{ opacity: 0, x: -10 }}
@@ -289,7 +386,8 @@ export function HomePage({ onNavigate }: HomePageProps) {
                     <p className="text-[15px]">{dept.name}</p>
                     <p className="text-[12px] text-purple-100">匹配度 {dept.match}%</p>
                   </motion.div>
-                ))}
+                  ))
+                )}
               </div>
               <motion.button 
                 whileHover={{ scale: 1.02 }}

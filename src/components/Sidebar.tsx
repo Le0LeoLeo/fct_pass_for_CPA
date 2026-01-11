@@ -7,9 +7,22 @@ interface SidebarProps {
   onLogout: () => void;
   isMobileMenuOpen: boolean;
   setIsMobileMenuOpen: (open: boolean) => void;
+  user?: any;
 }
 
-export function Sidebar({ currentPage, onNavigate, onLogout, isMobileMenuOpen, setIsMobileMenuOpen }: SidebarProps) {
+export function Sidebar({ currentPage, onNavigate, onLogout, isMobileMenuOpen, setIsMobileMenuOpen, user }: SidebarProps) {
+  // 提取 Google 用戶名稱
+  const userName = 
+    user?.user_metadata?.full_name || 
+    user?.user_metadata?.name || 
+    (user?.user_metadata?.given_name && user?.user_metadata?.family_name 
+      ? `${user.user_metadata.given_name} ${user.user_metadata.family_name}` 
+      : null) ||
+    user?.user_metadata?.given_name ||
+    user?.email?.split('@')[0] || 
+    '用戶';
+  
+  const userAvatar = user?.user_metadata?.avatar_url || user?.user_metadata?.picture;
   const menuItems = [
     { id: "home", label: "主頁", icon: Home },
     { id: "university-database", label: "大學資料庫", icon: BookOpen },
@@ -81,13 +94,21 @@ export function Sidebar({ currentPage, onNavigate, onLogout, isMobileMenuOpen, s
           <motion.div 
             whileHover={{ scale: 1.02 }}
             className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl cursor-pointer"
+            onClick={() => onNavigate("profile")}
           >
-            <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-              <User className="w-5 h-5 text-blue-600" />
-            </div>
+            {userAvatar ? (
+              <img 
+                src={userAvatar} 
+                alt={userName}
+                className="w-10 h-10 rounded-full object-cover"
+              />
+            ) : (
+              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                <User className="w-5 h-5 text-blue-600" />
+              </div>
+            )}
             <div className="flex-1 min-w-0">
-              <p className="text-[14px] text-gray-900 truncate">陳同學</p>
-              <p className="text-[12px] text-gray-500">高中三年級</p>
+              <p className="text-[14px] text-gray-900 truncate">{userName}</p>
             </div>
           </motion.div>
         </motion.div>

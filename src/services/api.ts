@@ -1,6 +1,9 @@
 // API service for backend communication
 
+import { getSupabaseClient } from './supabase';
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://aialjdzjuozrnqwlblyz.supabase.co';
 
 export interface OCRResponse {
   filename: string;
@@ -14,20 +17,46 @@ export interface OCRResponse {
   };
 }
 
-export async function performOCR(file: File): Promise<OCRResponse> {
-  const formData = new FormData();
-  formData.append('file', file);
-
-  const response = await fetch(`${API_BASE_URL}/ocr`, {
-    method: 'POST',
-    body: formData,
+// Convert file to base64 data URL
+function fileToDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
   });
+}
 
-  if (!response.ok) {
-    throw new Error(`OCR failed: ${response.statusText}`);
+export async function performOCR(file: File): Promise<OCRResponse> {
+  try {
+    // Convert file to base64
+    const dataUrl = await fileToDataURL(file);
+    
+    // Use Supabase Edge Function
+    const supabase = getSupabaseClient();
+    
+    // Get session to ensure we have auth token
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    const { data, error } = await supabase.functions.invoke('ocr', {
+      body: {
+        file: dataUrl,
+        filename: file.name,
+      },
+      headers: {
+        Authorization: session ? `Bearer ${session.access_token}` : undefined,
+      },
+    });
+
+    if (error) {
+      throw new Error(`OCR failed: ${error.message}`);
+    }
+
+    return data as OCRResponse;
+  } catch (error) {
+    console.error('OCR Error:', error);
+    throw error;
   }
-
-  return response.json();
 }
 
 // Baidu TTS/SST API functions
@@ -37,54 +66,86 @@ export interface BaiduTokenResponse {
 }
 
 export async function getBaiduAccessToken(apiKey: string, secretKey: string): Promise<string> {
-  const response = await fetch(
-    `https://aip.baidubce.com/oauth/2.0/token?grant_type=client_credentials&client_id=${encodeURIComponent(apiKey)}&client_secret=${encodeURIComponent(secretKey)}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'application/json',
-      },
-    }
-  );
+  // Use Supabase Edge Function to avoid CORS issues
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://aialjdzjuozrnqwlblyz.supabase.co';
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_GtfEWqxJgDwM61N782DaxQ_7NG_Lzae';
+  
+  const supabase = getSupabaseClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  
+  // Use direct fetch to ensure proper headers
+  // Only send Authorization header if we have a valid session
+  // Otherwise, only send apikey header (Supabase will accept this for anonymous access)
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'apikey': anonKey,
+  };
+  
+  // Only add Authorization header if we have a valid session token
+  // Don't send it if session is null/undefined to avoid "Invalid JWT" error
+  if (session && session.access_token) {
+    headers['Authorization'] = `Bearer ${session.access_token}`;
+  }
+  
+  const response = await fetch(`${supabaseUrl}/functions/v1/baidu-api`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      action: 'get_token',
+      apiKey,
+      secretKey,
+    }),
+  });
 
   if (!response.ok) {
-    throw new Error(`Failed to get access token: ${response.statusText}`);
+    const errorText = await response.text();
+    throw new Error(`Failed to get access token: ${response.status} ${response.statusText} - ${errorText}`);
   }
 
-  const data: BaiduTokenResponse = await response.json();
+  const data = await response.json();
   return data.access_token;
 }
 
 export async function speechToText(audioBlob: Blob, accessToken: string): Promise<string> {
-  const formData = new FormData();
-  formData.append('audio', audioBlob, 'audio.pcm');
+  // Convert blob to base64
+  const arrayBuffer = await audioBlob.arrayBuffer();
+  const uint8Array = new Uint8Array(arrayBuffer);
+  const base64Audio = btoa(String.fromCharCode(...uint8Array));
   
-  const params = new URLSearchParams({
-    dev_pid: '1537', // 1537=普通话(纯中文识别)
-    cuid: 'web_interview_client',
+  // Use Supabase Edge Function to avoid CORS issues
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://aialjdzjuozrnqwlblyz.supabase.co';
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_GtfEWqxJgDwM61N782DaxQ_7NG_Lzae';
+  
+  const supabase = getSupabaseClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'apikey': anonKey,
+  };
+  
+  // Only add Authorization header if we have a valid session token
+  if (session && session.access_token) {
+    headers['Authorization'] = `Bearer ${session.access_token}`;
+  }
+  
+  const response = await fetch(`${supabaseUrl}/functions/v1/baidu-api`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      action: 'speech_to_text',
+      accessToken,
+      audioData: base64Audio,
+    }),
   });
 
-  const response = await fetch(
-    `https://vop.baidu.com/server_api?${params.toString()}&token=${accessToken}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'audio/pcm;rate=16000',
-      },
-      body: audioBlob,
-    }
-  );
-
   if (!response.ok) {
-    throw new Error(`Speech recognition failed: ${response.statusText}`);
+    const errorText = await response.text();
+    throw new Error(`Speech recognition failed: ${response.status} ${response.statusText} - ${errorText}`);
   }
 
-  const result = await response.json();
-  if (result.err_no === 0 && result.result && result.result.length > 0) {
-    return result.result[0];
-  }
-  return '';
+  const data = await response.json();
+  return data.text || '';
 }
 
 export async function textToSpeech(
@@ -97,46 +158,196 @@ export async function textToSpeech(
     person?: number;
   } = {}
 ): Promise<Blob> {
-  const params = new URLSearchParams({
-    tex: text,
-    tok: accessToken,
-    cuid: 'web_interview_client',
-    ctp: '1',
-    lan: 'zh',
-    per: (options.person || 4).toString(), // 4=情感女声
-    spd: (options.speed || 5).toString(),
-    pit: (options.pitch || 5).toString(),
-    vol: (options.volume || 5).toString(),
-    aue: '3', // mp3格式
+  // Use Supabase Edge Function to avoid CORS issues
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://aialjdzjuozrnqwlblyz.supabase.co';
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_GtfEWqxJgDwM61N782DaxQ_7NG_Lzae';
+  
+  const supabase = getSupabaseClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'apikey': anonKey,
+  };
+  
+  // Only add Authorization header if we have a valid session token
+  if (session && session.access_token) {
+    headers['Authorization'] = `Bearer ${session.access_token}`;
+  }
+  
+  const response = await fetch(`${supabaseUrl}/functions/v1/baidu-api`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      action: 'text_to_speech',
+      accessToken,
+      text,
+      speed: options.speed || 5,
+      pitch: options.pitch || 5,
+      volume: options.volume || 5,
+      person: options.person || 4,
+    }),
   });
-
-  const response = await fetch(`https://tsn.baidu.com/text2audio?${params.toString()}`);
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`TTS failed: ${errorText}`);
+    throw new Error(`TTS failed: ${response.status} ${response.statusText} - ${errorText}`);
   }
 
-  const contentType = response.headers.get('content-type');
-  if (contentType && contentType.includes('application/json')) {
-    const errorData = await response.json();
-    throw new Error(`TTS API error: ${JSON.stringify(errorData)}`);
-  }
-
-  return response.blob();
+  const data = await response.json();
+  
+  // Convert base64 back to blob
+  const audioBytes = Uint8Array.from(atob(data.audioData), c => c.charCodeAt(0));
+  return new Blob([audioBytes], { type: 'audio/mp3' });
 }
 
 export async function callErnieAPI(
   userInput: string,
   conversationHistory: Array<{ role: string; content: string }>,
-  accessToken: string
+  accessToken: string,
+  model: string = 'ernie-4.5-turbo-128k' // 使用文心4.5T
 ): Promise<string> {
-  const systemPrompt = `你是一位专业的AI面试官，负责技术岗位（如前端开发、后端开发、全栈开发等）面试。要求：
-1. 提问简洁明了，每次只问一个问题
-2. 根据候选人的回答进行深入追问，展现专业水平
-3. 语气自然友好
-4. 回复控制在30-60字之间，口语化表达，避免书面语
-5. 如果候选人回答不完整，可以适当引导`;
+  // Use Supabase Edge Function to avoid CORS issues
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://aialjdzjuozrnqwlblyz.supabase.co';
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_GtfEWqxJgDwM61N782DaxQ_7NG_Lzae';
+  
+  const supabase = getSupabaseClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'apikey': anonKey,
+  };
+  
+  // Only add Authorization header if we have a valid session token
+  if (session && session.access_token) {
+    headers['Authorization'] = `Bearer ${session.access_token}`;
+  }
+  
+  const response = await fetch(`${supabaseUrl}/functions/v1/baidu-api`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      action: 'ernie_chat',
+      accessToken,
+      userInput,
+      conversationHistory,
+      model,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('❌ Ernie API Edge Function error:', response.status, response.statusText, errorText);
+    throw new Error(`Ernie API failed: ${response.status} ${response.statusText} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  console.log('📦 Ernie API Edge Function response:', data);
+  
+  // Check if there's an error in the response
+  if (data.error) {
+    console.error('❌ Ernie API error in response:', data.error);
+    throw new Error(`Ernie API error: ${data.error}`);
+  }
+  
+  // Check if result exists
+  if (!data.result) {
+    console.warn('⚠️ Ernie API returned no result:', data);
+    throw new Error('Ernie API returned empty result');
+  }
+  
+  return data.result;
+}
+
+// 快速生成問卷問題的API調用（優化速度）
+async function callErnieChatAPIFast(
+  userInput: string,
+  bearerToken: string,
+  systemPrompt: string,
+  unconvergedDimensions: string[]
+): Promise<string> {
+  const messages = [
+    {
+      role: 'system',
+      content: systemPrompt,
+    },
+    {
+      role: 'user',
+      content: userInput,
+    },
+  ];
+
+  // 優化的請求參數：適度提高temperature增加多樣性，避免重複
+  const requestBody = {
+    model: 'ernie-4.5-turbo-128k',
+    messages: messages,
+    temperature: 0.8, // 提高temperature增加問題多樣性，避免重複
+    top_p: 0.9,
+    penalty_score: 1,
+    max_output_tokens: 800, // 限制輸出長度，加快生成
+    stop: [],
+    web_search: {
+      enable: false,
+      enable_trace: false,
+    },
+  };
+
+  const response = await fetch(
+    'https://qianfan.baidubce.com/v2/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${bearerToken}`,
+      },
+      body: JSON.stringify(requestBody),
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Ernie API failed: ${response.statusText} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  
+  if (data.error) {
+    throw new Error(`Ernie API error: ${data.error.message || data.error.code || 'Unknown error'}`);
+  }
+  
+  // 提取响应内容
+  if (data.choices && data.choices.length > 0 && data.choices[0].message) {
+    return data.choices[0].message.content?.trim() || '';
+  }
+  
+  if (data.result) {
+    return data.result.trim();
+  }
+  
+  throw new Error(`API response format unexpected: ${JSON.stringify(data).substring(0, 200)}`);
+}
+
+// 文心 4.5 聊天 API（用于 AI 助手）- 使用新的千帆 API 格式
+export async function callErnieChatAPI(
+  userInput: string,
+  conversationHistory: Array<{ role: string; content: string }>,
+  bearerToken: string,
+  model: string = 'ernie-4.5-turbo-128k',
+  customSystemPrompt?: string // 允许自定义 system prompt
+): Promise<string> {
+  const systemPrompt = customSystemPrompt || `你是一位专业的AI升学辅导助手，可以帮助学生：
+1. 推荐适合的科系和专业
+2. 解答升学相关问题
+3. 提供面试准备建议
+4. 分析学校与科系信息
+5. 进行分数落点分析
+
+要求：
+- 回答要专业、准确、友好
+- 根据学生的具体情况提供个性化建议
+- 使用清晰易懂的语言
+- 可以适当使用列表和分段来组织回答`;
 
   const messages = [
     {
@@ -147,31 +358,644 @@ export async function callErnieAPI(
       role: msg.role,
       content: msg.content,
     })),
+    {
+      role: 'user',
+      content: userInput,
+    },
   ];
 
+  // 使用新的千帆 API 格式
+  const requestBody = {
+    model: model,
+    messages: messages,
+    temperature: 0.8,
+    top_p: 0.8,
+    penalty_score: 1,
+    stop: [],
+    web_search: {
+      enable: false,
+      enable_trace: false,
+    },
+  };
+
+  console.log('🌐 [callErnieChatAPI] 發送 API 請求:', {
+    url: 'https://qianfan.baidubce.com/v2/chat/completions',
+    model: model,
+    messagesCount: messages.length,
+    bearerTokenLength: bearerToken.length,
+    bearerTokenPrefix: bearerToken.substring(0, 20) + '...',
+    requestBodyPreview: JSON.stringify(requestBody).substring(0, 200) + '...',
+  });
+
+  let response: Response;
+  try {
+    response = await fetch(
+      'https://qianfan.baidubce.com/v2/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${bearerToken}`,
+        },
+        body: JSON.stringify(requestBody),
+      }
+    );
+    console.log('📥 [callErnieChatAPI] API 響應狀態:', response.status, response.statusText);
+  } catch (fetchError) {
+    console.error('❌ [callErnieChatAPI] Fetch 錯誤:', fetchError);
+    throw new Error(`Network error: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`);
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('❌ Ernie API 錯誤:', errorText);
+    throw new Error(`Ernie API failed: ${response.statusText} - ${errorText}`);
+  }
+
+  let data: any;
+  try {
+    const responseText = await response.text();
+    console.log('📦 [callErnieChatAPI] API 響應原始文本 (前500字符):', responseText.substring(0, 500));
+    
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('❌ [callErnieChatAPI] JSON 解析失敗:', parseError);
+      console.error('響應文本:', responseText);
+      throw new Error(`Invalid JSON response: ${responseText.substring(0, 200)}`);
+    }
+    
+    console.log('📦 [callErnieChatAPI] API 響應數據:', {
+      hasChoices: !!data.choices,
+      choicesLength: data.choices?.length || 0,
+      hasResult: !!data.result,
+      hasError: !!data.error,
+      responseKeys: Object.keys(data),
+      fullResponse: JSON.stringify(data, null, 2).substring(0, 1000) // 显示前1000字符
+    });
+  } catch (error) {
+    console.error('❌ [callErnieChatAPI] 處理響應時出錯:', error);
+    throw error;
+  }
+  
+  // 处理新 API 格式的响应
+  if (data.error) {
+    console.error('❌ Ernie API error:', {
+      error: data.error,
+      fullResponse: JSON.stringify(data, null, 2)
+    });
+    throw new Error(`Ernie API error: ${data.error.message || data.error.code || 'Unknown error'}`);
+  }
+  
+  // 新 API 格式：data.choices[0].message.content
+  if (data.choices && data.choices.length > 0 && data.choices[0].message) {
+    const content = data.choices[0].message.content;
+    console.log('✅ 从 choices[0].message.content 提取响应:', {
+      contentLength: content?.length || 0,
+      contentPreview: content ? content.substring(0, 100) + '...' : 'null'
+    });
+    return content ? content.trim() : '';
+  }
+  
+  // 兼容旧格式：data.result
+  if (data.result) {
+    console.log('✅ 从 result 提取响应:', {
+      resultLength: data.result?.length || 0,
+      resultPreview: data.result ? data.result.substring(0, 100) + '...' : 'null'
+    });
+    return data.result.trim();
+  }
+  
+  // 如果都没有，记录详细信息并抛出错误
+  console.error('⚠️ [callErnieChatAPI] API 响应中没有找到有效内容:', {
+    responseKeys: Object.keys(data),
+    choices: data.choices,
+    result: data.result,
+    error: data.error,
+    fullData: JSON.stringify(data, null, 2)
+  });
+  
+  // 抛出错误而不是返回默认消息，这样调用方可以知道发生了什么
+  throw new Error(`API response format unexpected: ${JSON.stringify(data).substring(0, 200)}`);
+}
+
+// 成绩统计分析接口
+export interface GradeStatistics {
+  bySubject: Array<{
+    subject: string;
+    avg: string;
+    avgScore: string;
+    scored: number;
+    total: number;
+    completion: string;
+  }>;
+  overall: {
+    totalEvents: number;
+    totalScored: number;
+    completion: string;
+    overallAvg: string;
+    overallScore: string;
+    overallMax: string;
+  };
+}
+
+// 使用文心 4.5T 进行成绩统计分析
+export async function analyzeGradeStatistics(
+  statistics: GradeStatistics,
+  bearerToken: string
+): Promise<{
+  estimatedScore: string;
+  recommendedMajors: string;
+  analysis: string;
+  strengths: string[];
+  improvements: string[];
+}> {
+  const systemPrompt = `你是一位专业的升学辅导AI助手，擅长分析学生成绩数据并提供升学建议。
+
+重要：该学生的成绩计算采用加权平均系统，权重配置如下：
+- 测验成绩：20%
+- 考试成绩：20%
+- 日常表现（作业、报告、实验等）：60%
+成绩统计中的平均分已经考虑了这些权重因素。
+
+要求：
+1. 根据成绩统计数据，预估学测级分（15级分制，范围约45-60级分）
+2. 推荐3-5个适合的科系和专业
+3. 分析学习优势和需要加强的科目
+4. 提供具体的改进建议，特别关注日常表现（权重60%）的重要性
+5. 回答要专业、准确、友好
+6. 使用清晰易懂的语言，可以适当使用列表和分段
+
+输出格式要求：
+- 预估学测级分：XX-XX级分（例如：56-58级分）
+- 推荐科系：用逗号分隔，例如：資訊工程、電機工程、機械工程
+- 分析：一段话总结学习情况
+- 优势科目：用逗号分隔
+- 需要加强：用逗号分隔`;
+
+  const userPrompt = `请分析以下成绩统计数据：
+
+总体统计：
+- 总成绩事件数：${statistics.overall.totalEvents}
+- 已评分事件数：${statistics.overall.totalScored}
+- 完成度：${statistics.overall.completion}%
+- 总体平均分：${statistics.overall.overallAvg}%
+- 平均得分：${statistics.overall.overallScore} / ${statistics.overall.overallMax}
+
+各科表现：
+${statistics.bySubject.map(subj => 
+  `- ${subj.subject}：平均 ${subj.avg}%，已完成 ${subj.scored}/${subj.total} 项（完成度 ${subj.completion}%）`
+).join('\n')}
+
+请提供：
+1. 预估学测级分
+2. 推荐科系和专业
+3. 学习情况分析
+4. 优势科目
+5. 需要加强的科目`;
+
+  const messages = [
+    {
+      role: 'system',
+      content: systemPrompt,
+    },
+    {
+      role: 'user',
+      content: userPrompt,
+    },
+  ];
+
+  const requestBody = {
+    model: 'ernie-4.5-turbo-128k',
+    messages: messages,
+    temperature: 0.8,
+    top_p: 0.8,
+    penalty_score: 1,
+    stop: [],
+    web_search: {
+      enable: false,
+      enable_trace: false,
+    },
+  };
+
   const response = await fetch(
-    `https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/ernie-4.0-8k?access_token=${accessToken}`,
+    'https://qianfan.baidubce.com/v2/chat/completions',
     {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${bearerToken}`,
       },
-      body: JSON.stringify({
-        messages: messages,
-        temperature: 0.7,
-        max_output_tokens: 150,
-        stream: false,
-      }),
+      body: JSON.stringify(requestBody),
     }
   );
 
   if (!response.ok) {
-    throw new Error(`Ernie API failed: ${response.statusText}`);
+    const errorText = await response.text();
+    console.error('❌ 成绩分析 API 錯誤:', errorText);
+    throw new Error(`成绩分析 API failed: ${response.statusText}`);
   }
 
   const data = await response.json();
-  if (data.result) {
-    return data.result.trim();
+  
+  if (data.error) {
+    console.error('成绩分析 API error:', data);
+    throw new Error(`成绩分析 API error: ${data.error.message || data.error.code || 'Unknown error'}`);
   }
-  return '抱歉，系统暂时无法响应，请稍后再试。';
+  
+  const aiResponse = data.choices?.[0]?.message?.content || data.result || '无法生成分析';
+  
+  // 解析 AI 响应
+  const estimatedScoreMatch = aiResponse.match(/预估学测级分[：:]\s*(\d+-\d+)/) || 
+                              aiResponse.match(/(\d+-\d+)\s*级分/);
+  const estimatedScore = estimatedScoreMatch ? estimatedScoreMatch[1] : '55-57';
+  
+  const recommendedMatch = aiResponse.match(/推荐科系[：:]([^\n]+)/);
+  const recommendedMajors = recommendedMatch ? recommendedMatch[1].trim() : '資訊工程、電機工程';
+  
+  const strengthsMatch = aiResponse.match(/优势科目[：:]([^\n]+)/);
+  const strengths = strengthsMatch ? strengthsMatch[1].split(/[,，]/).map(s => s.trim()) : [];
+  
+  const improvementsMatch = aiResponse.match(/需要加强[：:]([^\n]+)/);
+  const improvements = improvementsMatch ? improvementsMatch[1].split(/[,，]/).map(s => s.trim()) : [];
+  
+  return {
+    estimatedScore,
+    recommendedMajors,
+    analysis: aiResponse,
+    strengths: strengths.length > 0 ? strengths : statistics.bySubject
+      .filter(s => parseFloat(s.avg) >= 85)
+      .map(s => s.subject),
+    improvements: improvements.length > 0 ? improvements : statistics.bySubject
+      .filter(s => parseFloat(s.avg) < 80)
+      .map(s => s.subject),
+  };
+}
+
+// DeepSeek 解析成绩事件
+export interface GradeEvent {
+  id: string;
+  date: string;
+  date_range: string;
+  week: string;
+  subject: string;
+  type: string;
+  title: string;
+  notes: string;
+}
+
+export interface ParseGradesResponse {
+  choices?: Array<{
+    message: {
+      content: string;
+    };
+  }>;
+  events?: GradeEvent[];
+}
+
+export async function parseGradesFromOCR(
+  ocrText: string,
+  track?: 'liberal' | 'science'
+): Promise<ParseGradesResponse> {
+  try {
+    // Use Supabase Edge Function
+    const supabase = getSupabaseClient();
+    
+    // Get session to ensure we have auth token
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    const { data, error } = await supabase.functions.invoke('parse-grades', {
+      body: {
+        ocr_text: ocrText,
+        track: track, // 传递文理科选择
+      },
+      headers: {
+        Authorization: session ? `Bearer ${session.access_token}` : undefined,
+      },
+    });
+
+    if (error) {
+      throw new Error(`Parse grades failed: ${error.message}`);
+    }
+
+    // Edge Function already extracts events, so return directly
+    return data as ParseGradesResponse;
+  } catch (error) {
+    console.error('Parse Grades Error:', error);
+    throw error;
+  }
+}
+
+// ==================== 自适应问卷系统 ====================
+
+// 人格权重接口
+export interface PersonalityWeights {
+  // MBTI 维度
+  mbti: {
+    E: number; // 外向
+    I: number; // 内向
+    S: number; // 感觉
+    N: number; // 直觉
+    T: number; // 思考
+    F: number; // 情感
+    J: number; // 判断
+    P: number; // 知觉
+  };
+  // Holland 维度
+  holland: {
+    R: number; // 现实型
+    I: number; // 研究型
+    A: number; // 艺术型
+    S: number; // 社会型
+    E: number; // 企业型
+    C: number; // 常规型
+  };
+}
+
+// 问卷问题接口
+export interface QuestionnaireQuestion {
+  question: string;
+  options: Array<{
+    text: string;
+    weights: {
+      mbti?: Partial<PersonalityWeights['mbti']>;
+      holland?: Partial<PersonalityWeights['holland']>;
+    };
+  }>;
+}
+
+// 问卷状态接口
+export interface QuestionnaireState {
+  currentWeights: PersonalityWeights;
+  stage: 'icebreaker' | 'behavior' | 'situation'; // 破冰 → 行为 → 情境
+  questionNumber: number;
+  answers: Array<{
+    question: string;
+    selectedOption: number;
+    timestamp: string;
+  }>;
+  convergedDimensions: {
+    mbti: string[]; // 已收敛的MBTI维度，如 ['E/I', 'S/N']
+    holland: string[]; // 已收敛的Holland维度，如 ['R', 'I']
+  };
+  confidenceScores: {
+    mbti: Record<string, number>; // 如 { 'E/I': 0.85 }
+    holland: Record<string, number>; // 如 { 'R': 0.90 }
+  };
+}
+
+// 生成問卷問題的函數
+export async function generateQuestionnaireQuestion(
+  state: QuestionnaireState,
+  lastAnswer?: { question: string; selectedOption: number },
+  bearerToken: string
+): Promise<QuestionnaireQuestion | null> {
+  // 計算哪些維度尚未收斂
+  const unconvergedDimensions: string[] = [];
+  
+  // 檢查MBTI維度
+  const mbtiPairs = [
+    { key: 'E/I', values: ['E', 'I'] },
+    { key: 'S/N', values: ['S', 'N'] },
+    { key: 'T/F', values: ['T', 'F'] },
+    { key: 'J/P', values: ['J', 'P'] },
+  ];
+  
+  for (const pair of mbtiPairs) {
+    if (state.convergedDimensions.mbti.includes(pair.key)) {
+      continue; // 已收斂，跳過
+    }
+    
+    const diff = Math.abs(state.currentWeights.mbti[pair.values[0] as keyof PersonalityWeights['mbti']] - 
+                          state.currentWeights.mbti[pair.values[1] as keyof PersonalityWeights['mbti']]);
+    const confidence = state.confidenceScores.mbti[pair.key] || 0;
+    
+    if (diff < 3 || confidence < 0.8) {
+      unconvergedDimensions.push(`MBTI-${pair.key}`);
+    }
+  }
+  
+  // 檢查Holland維度
+  const hollandTypes = ['R', 'I', 'A', 'S', 'E', 'C'];
+  for (const type of hollandTypes) {
+    if (state.convergedDimensions.holland.includes(type)) {
+      continue; // 已收斂，跳過
+    }
+    
+    // 計算該類型與其他類型的最大差距
+    const currentValue = state.currentWeights.holland[type as keyof PersonalityWeights['holland']];
+    const otherValues = hollandTypes
+      .filter(t => t !== type)
+      .map(t => state.currentWeights.holland[t as keyof PersonalityWeights['holland']]);
+    const maxDiff = Math.max(...otherValues.map(v => Math.abs(currentValue - v)));
+    const confidence = state.confidenceScores.holland[type] || 0;
+    
+    if (maxDiff < 3 || confidence < 0.8) {
+      unconvergedDimensions.push(`Holland-${type}`);
+    }
+  }
+  
+  // 如果所有維度都收斂了，返回null表示問卷完成
+  if (unconvergedDimensions.length === 0) {
+    return null;
+  }
+  
+  // 確定當前階段
+  let currentStage = state.stage;
+  if (state.questionNumber === 0) {
+    currentStage = 'icebreaker';
+  } else if (state.questionNumber < 5) {
+    currentStage = 'behavior';
+  } else {
+    currentStage = 'situation';
+  }
+  
+  // 構建系統提示詞（確保繁體中文且不重複）
+  const stageName = currentStage === 'icebreaker' ? '破冰' : currentStage === 'behavior' ? '行為' : '情境';
+  const unconvergedStr = unconvergedDimensions.slice(0, 2).join(',');
+  
+  // 獲取已生成的問題列表（避免重複）
+  const previousQuestions = state.answers
+    .slice(-5) // 只取最近5題
+    .map(a => a.question)
+    .join('、');
+  
+  // 優化prompt：明確要求繁體中文，避免重複
+  const systemPrompt = `生成繁體中文問卷問題。要求：
+1. 必須使用繁體中文（台灣用語）
+2. ${stageName}階段，生活化校園情境
+3. 3-4個選項，每個選項繁體中文
+4. 針對未收斂維度：${unconvergedStr}
+5. 問題必須與已問過的不同：${previousQuestions || '無'}
+6. 問題要新穎、多樣化，避免重複
+
+僅輸出JSON（繁體中文）：
+{"question":"問題（繁體）","options":[{"text":"選項1（繁體）","weights":{"mbti":{"E":1},"holland":{"R":1}}}]}`;
+
+  // 用戶提示（包含問題歷史）
+  const userPrompt = lastAnswer 
+    ? `生成第${state.questionNumber + 1}題。上一題：${lastAnswer.question.substring(0, 40)}...，用戶選了選項${lastAnswer.selectedOption + 1}。請生成不同的新問題。`
+    : `生成第${state.questionNumber + 1}題（${stageName}階段）。`;
+
+  try {
+    // 使用优化的快速生成函数
+    const response = await callErnieChatAPIFast(
+      userPrompt,
+      bearerToken,
+      systemPrompt,
+      unconvergedDimensions
+    );
+    
+    // 快速解析JSON響應（優化）
+    let questionData: QuestionnaireQuestion;
+    try {
+      // 快速提取JSON：先嘗試直接解析，失敗再提取
+      let jsonStr = response.trim();
+      
+      // 如果包含markdown代碼塊，提取JSON部分
+      const codeBlockMatch = jsonStr.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+      if (codeBlockMatch) {
+        jsonStr = codeBlockMatch[1];
+      } else {
+        // 提取第一個完整的JSON對象
+        const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          jsonStr = jsonMatch[0];
+        }
+      }
+      
+      questionData = JSON.parse(jsonStr);
+    } catch (parseError) {
+      console.error('Failed to parse question JSON:', response);
+      // 嘗試更寬鬆的解析
+      try {
+        const cleaned = response.replace(/[^\x20-\x7E\n\r]/g, ''); // 移除非ASCII字符
+        const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          questionData = JSON.parse(jsonMatch[0]);
+        } else {
+          throw parseError;
+        }
+      } catch (e) {
+        throw new Error('AI返回的格式不正確，無法解析為JSON');
+      }
+    }
+    
+    // 驗證問題格式
+    if (!questionData.question || !questionData.options || questionData.options.length < 2) {
+      throw new Error('生成的問題格式不正確');
+    }
+    
+    return questionData;
+  } catch (error) {
+    console.error('Error generating question:', error);
+    throw error;
+  }
+}
+
+// 計算信心值
+export function calculateConfidenceScore(
+  weights: PersonalityWeights,
+  dimension: string,
+  type: 'mbti' | 'holland'
+): number {
+  if (type === 'mbti') {
+    const pairs: Record<string, string[]> = {
+      'E/I': ['E', 'I'],
+      'S/N': ['S', 'N'],
+      'T/F': ['T', 'F'],
+      'J/P': ['J', 'P'],
+    };
+    
+    const pair = pairs[dimension];
+    if (!pair) return 0;
+    
+    const diff = Math.abs(weights.mbti[pair[0] as keyof PersonalityWeights['mbti']] - 
+                          weights.mbti[pair[1] as keyof PersonalityWeights['mbti']]);
+    // 差距越大，信心值越高（最大1.0）
+    return Math.min(diff / 10, 1.0);
+  } else {
+    // Holland類型：計算該類型與其他類型的最大差距
+    const currentValue = weights.holland[dimension as keyof PersonalityWeights['holland']];
+    const allTypes = ['R', 'I', 'A', 'S', 'E', 'C'];
+    const otherValues = allTypes
+      .filter(t => t !== dimension)
+      .map(t => weights.holland[t as keyof PersonalityWeights['holland']]);
+    const maxDiff = Math.max(...otherValues.map(v => Math.abs(currentValue - v)));
+    return Math.min(maxDiff / 10, 1.0);
+  }
+}
+
+// 更新人格權重
+export function updatePersonalityWeights(
+  currentWeights: PersonalityWeights,
+  selectedWeights: QuestionnaireQuestion['options'][0]['weights']
+): PersonalityWeights {
+  const newWeights = JSON.parse(JSON.stringify(currentWeights)); // 深拷貝
+  
+  // 更新MBTI權重
+  if (selectedWeights.mbti) {
+    for (const [key, value] of Object.entries(selectedWeights.mbti)) {
+      if (key in newWeights.mbti) {
+        newWeights.mbti[key as keyof PersonalityWeights['mbti']] += value || 0;
+      }
+    }
+  }
+  
+  // 更新Holland權重
+  if (selectedWeights.holland) {
+    for (const [key, value] of Object.entries(selectedWeights.holland)) {
+      if (key in newWeights.holland) {
+        newWeights.holland[key as keyof PersonalityWeights['holland']] += value || 0;
+      }
+    }
+  }
+  
+  return newWeights;
+}
+
+// 檢查維度是否收斂
+export function checkDimensionConvergence(
+  weights: PersonalityWeights,
+  confidenceScores: QuestionnaireState['confidenceScores']
+): QuestionnaireState['convergedDimensions'] {
+  const converged: QuestionnaireState['convergedDimensions'] = {
+    mbti: [],
+    holland: [],
+  };
+  
+  // 檢查MBTI維度
+  const mbtiPairs = [
+    { key: 'E/I', values: ['E', 'I'] },
+    { key: 'S/N', values: ['S', 'N'] },
+    { key: 'T/F', values: ['T', 'F'] },
+    { key: 'J/P', values: ['J', 'P'] },
+  ];
+  
+  for (const pair of mbtiPairs) {
+    const diff = Math.abs(weights.mbti[pair.values[0] as keyof PersonalityWeights['mbti']] - 
+                          weights.mbti[pair.values[1] as keyof PersonalityWeights['mbti']]);
+    const confidence = confidenceScores.mbti[pair.key] || 0;
+    
+    if (diff >= 3 && confidence >= 0.8) {
+      converged.mbti.push(pair.key);
+    }
+  }
+  
+  // 檢查Holland維度
+  const hollandTypes = ['R', 'I', 'A', 'S', 'E', 'C'];
+  for (const type of hollandTypes) {
+    const currentValue = weights.holland[type as keyof PersonalityWeights['holland']];
+    const otherValues = hollandTypes
+      .filter(t => t !== type)
+      .map(t => weights.holland[t as keyof PersonalityWeights['holland']]);
+    const maxDiff = Math.max(...otherValues.map(v => Math.abs(currentValue - v)));
+    const confidence = confidenceScores.holland[type] || 0;
+    
+    if (maxDiff >= 3 && confidence >= 0.8) {
+      converged.holland.push(type);
+    }
+  }
+  
+  return converged;
 }

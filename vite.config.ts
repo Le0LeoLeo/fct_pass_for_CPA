@@ -5,6 +5,9 @@
 
   export default defineConfig({
     plugins: [react()],
+    optimizeDeps: {
+      include: ['@supabase/supabase-js'],
+    },
     resolve: {
       extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
       alias: {
