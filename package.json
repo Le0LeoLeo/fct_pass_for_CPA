@@ -1,0 +1,13 @@
+{
+  "dependencies": {
+    "@supabase/supabase-js": "^2.90.1",
+    "cors": "^2.8.5",
+    "firebase": "^10.7.1",
+    "pdfjs-dist": "^5.4.530"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "supabase": "^2.71.2"
+  }
+}
