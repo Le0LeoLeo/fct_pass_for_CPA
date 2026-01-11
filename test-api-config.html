@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>測試 API 配置</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <h1>測試 Supabase API 配置</h1>
+    <button onclick="testConfig()">測試配置</button>
+    <div id="result" style="margin-top: 20px; padding: 20px; background: #f0f0f0; border-radius: 8px;"></div>
+
+    <script>
+        const supabaseUrl = 'https://aialjdzjuozrnqwlblyz.supabase.co';
+        const supabaseAnonKey = 'sb_publishable_GtfEWqxJgDwM61N782DaxQ_7NG_Lzae';
+        
+        const supabase = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
+
+        async function testConfig() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '測試中...';
+            
+            try {
+                // 測試 1: 檢查表是否存在
+                console.log('測試 1: 檢查 api_configs 表...');
+                const { data: tableData, error: tableError } = await supabase
+                    .from('api_configs')
+                    .select('*')
+                    .limit(5);
+                
+                if (tableError) {
+                    resultDiv.innerHTML = `<h2>❌ 錯誤</h2><pre>${JSON.stringify(tableError, null, 2)}</pre>`;
+                    console.error('表錯誤:', tableError);
+                    return;
+                }
+                
+                console.log('表數據:', tableData);
+                
+                // 測試 2: 獲取特定配置
+                const { data: apiKeyData, error: apiKeyError } = await supabase
+                    .from('api_configs')
+                    .select('key_value')
+                    .eq('key_name', 'baidu_api_key')
+                    .single();
+                
+                const { data: secretKeyData, error: secretKeyError } = await supabase
+                    .from('api_configs')
+                    .select('key_value')
+                    .eq('key_name', 'baidu_secret_key')
+                    .single();
+                
+                const { data: apiTokenData, error: apiTokenError } = await supabase
+                    .from('api_configs')
+                    .select('key_value')
+                    .eq('key_name', 'baidu_api_token')
+                    .single();
+                
+                let result = '<h2>✅ 測試結果</h2>';
+                result += `<h3>表數據 (共 ${tableData.length} 條):</h3>`;
+                result += `<pre>${JSON.stringify(tableData, null, 2)}</pre>`;
+                
+                result += '<h3>配置項:</h3>';
+                result += `<p><strong>baidu_api_key:</strong> ${apiKeyData ? (apiKeyData.key_value ? '✅ 存在 (長度: ' + apiKeyData.key_value.length + ')' : '❌ 為空') : '❌ 未找到'}</p>`;
+                result += `<p><strong>baidu_secret_key:</strong> ${secretKeyData ? (secretKeyData.key_value ? '✅ 存在 (長度: ' + secretKeyData.key_value.length + ')' : '❌ 為空') : '❌ 未找到'}</p>`;
+                result += `<p><strong>baidu_api_token:</strong> ${apiTokenData ? (apiTokenData.key_value ? '✅ 存在 (長度: ' + apiTokenData.key_value.length + ')' : '❌ 為空') : '❌ 未找到'}</p>`;
+                
+                if (apiKeyError) {
+                    result += `<p style="color: red;"><strong>baidu_api_key 錯誤:</strong> ${JSON.stringify(apiKeyError)}</p>`;
+                }
+                if (secretKeyError) {
+                    result += `<p style="color: red;"><strong>baidu_secret_key 錯誤:</strong> ${JSON.stringify(secretKeyError)}</p>`;
+                }
+                if (apiTokenError) {
+                    result += `<p style="color: red;"><strong>baidu_api_token 錯誤:</strong> ${JSON.stringify(apiTokenError)}</p>`;
+                }
+                
+                resultDiv.innerHTML = result;
+            } catch (error) {
+                resultDiv.innerHTML = `<h2>❌ 異常</h2><pre>${error.toString()}</pre>`;
+                console.error('測試異常:', error);
+            }
+        }
+    </script>
+</body>
+</html>
