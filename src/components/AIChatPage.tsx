@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
 import { callErnieChatAPI } from "../services/api";
-import { getBaiduApiConfig } from "../services/supabase";
+import { getBaiduApiConfig, saveAIChatConversation, getAIChatConversations, deleteAIChatConversation, AIChatConversation } from "../services/supabase";
 import { getBaiduAccessToken } from "../services/api";
 
 interface AIChatPageProps {
@@ -27,6 +27,7 @@ interface Conversation {
 }
 
 const STORAGE_KEY = "ai_chat_conversations";
+const STORAGE_KEY_MIGRATED = "ai_chat_conversations_migrated"; // 标记是否已迁移
 const GRADE_STORAGE_KEY = "schedule_score_state_v1";
 
 // 成績類型權重配置（學校評分系統）
@@ -237,25 +238,77 @@ export function AIChatPage({ onNavigate }: AIChatPageProps) {
   const [isTyping, setIsTyping] = useState(false);
   const [accessToken, setAccessToken] = useState<string>("");
   const [apiReady, setApiReady] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // 移动端默认关闭，桌面端默认打开
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 1024; // lg 断点（1024px）
+    }
+    return true; // SSR 时默认打开
+  });
   const [showInfo, setShowInfo] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // 将 Supabase 对话格式转换为组件使用的格式
+  const convertFromSupabase = (conv: AIChatConversation): Conversation => {
+    return {
+      id: conv.id,
+      title: conv.title,
+      createdAt: new Date(conv.created_at),
+      updatedAt: new Date(conv.updated_at),
+      messages: conv.messages.map((msg) => ({
+        id: msg.id,
+        role: msg.role,
+        content: msg.content,
+        timestamp: new Date(msg.timestamp),
+      })),
+    };
+  };
+
+  // 从 localStorage 迁移数据到 Supabase
+  const migrateFromLocalStorage = async () => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    const migrated = localStorage.getItem(STORAGE_KEY_MIGRATED);
+    
+    if (!saved || migrated === 'true') {
+      return; // 没有数据或已迁移
+    }
+
+    try {
+      const parsed = JSON.parse(saved);
+      const conversations: Conversation[] = parsed.map((conv: any) => ({
+        ...conv,
+        createdAt: new Date(conv.createdAt),
+        updatedAt: new Date(conv.updatedAt),
+        messages: conv.messages.map((msg: any) => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp),
+        })),
+      }));
+
+      // 将每个对话保存到 Supabase
+      for (const conv of conversations) {
+        await saveAIChatConversation(null, conv.title, conv.messages);
+      }
+
+      // 标记已迁移
+      localStorage.setItem(STORAGE_KEY_MIGRATED, 'true');
+      console.log('✅ 已从 localStorage 迁移对话记录到 Supabase');
+    } catch (error) {
+      console.error('迁移对话记录失败:', error);
+    }
+  };
+
   // 加载对话历史
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
+    const loadConversations = async () => {
       try {
-        const parsed = JSON.parse(saved);
-        const loadedConversations: Conversation[] = parsed.map((conv: any) => ({
-          ...conv,
-          createdAt: new Date(conv.createdAt),
-          updatedAt: new Date(conv.updatedAt),
-          messages: conv.messages.map((msg: any) => ({
-            ...msg,
-            timestamp: new Date(msg.timestamp),
-          })),
-        }));
+        // 先尝试迁移 localStorage 数据
+        await migrateFromLocalStorage();
+
+        // 从 Supabase 加载对话
+        const supabaseConversations = await getAIChatConversations();
+        const loadedConversations: Conversation[] = supabaseConversations.map(convertFromSupabase);
+        
         setConversations(loadedConversations);
         
         // 如果有对话，加载最新的
@@ -266,25 +319,37 @@ export function AIChatPage({ onNavigate }: AIChatPageProps) {
         }
       } catch (error) {
         console.error('加载对话历史失败:', error);
+        // 如果 Supabase 加载失败，尝试从 localStorage 加载（降级）
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            const loadedConversations: Conversation[] = parsed.map((conv: any) => ({
+              ...conv,
+              createdAt: new Date(conv.createdAt),
+              updatedAt: new Date(conv.updatedAt),
+              messages: conv.messages.map((msg: any) => ({
+                ...msg,
+                timestamp: new Date(msg.timestamp),
+              })),
+            }));
+            setConversations(loadedConversations);
+            if (loadedConversations.length > 0) {
+              const latest = loadedConversations[loadedConversations.length - 1];
+              setCurrentConversationId(latest.id);
+              setMessages(latest.messages);
+            }
+          } catch (e) {
+            console.error('从 localStorage 加载失败:', e);
+          }
+        }
       }
-    }
+    };
+
+    loadConversations();
   }, []);
 
-  // 保存对话到 localStorage
-  const saveConversations = (convs: Conversation[]) => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(convs));
-    } catch (error) {
-      console.error('保存对话失败:', error);
-    }
-  };
-
-  // 保存对话历史
-  useEffect(() => {
-    if (conversations.length > 0) {
-      saveConversations(conversations);
-    }
-  }, [conversations]);
+  // 保存对话到 Supabase（不再使用 useEffect，改为手动保存）
 
   // 添加状态监听
   useEffect(() => {
@@ -307,7 +372,7 @@ export function AIChatPage({ onNavigate }: AIChatPageProps) {
   };
 
   // 创建新对话
-  const createNewConversation = () => {
+  const createNewConversation = async (): Promise<string | null> => {
     const initialMessage: Message = {
       id: 1,
       role: "assistant",
@@ -315,17 +380,23 @@ export function AIChatPage({ onNavigate }: AIChatPageProps) {
       timestamp: new Date(),
     };
     
-    const newConversation: Conversation = {
-      id: Date.now().toString(),
-      title: "新對話",
-      messages: [initialMessage],
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    
-    setConversations((prev) => [...prev, newConversation]);
-    setCurrentConversationId(newConversation.id);
-    setMessages([initialMessage]);
+    try {
+      // 保存到 Supabase
+      const savedConv = await saveAIChatConversation(null, "新對話", [initialMessage]);
+      if (savedConv) {
+        const newConversation = convertFromSupabase(savedConv);
+        setConversations((prev) => [...prev, newConversation]);
+        setCurrentConversationId(newConversation.id);
+        setMessages([initialMessage]);
+        return newConversation.id;
+      } else {
+        console.error('创建新对话失败');
+        return null;
+      }
+    } catch (error) {
+      console.error('创建新对话异常:', error);
+      return null;
+    }
   };
 
   // 切换对话
@@ -338,45 +409,55 @@ export function AIChatPage({ onNavigate }: AIChatPageProps) {
   };
 
   // 删除对话
-  const deleteConversation = (conversationId: string, e: React.MouseEvent) => {
+  const deleteConversation = async (conversationId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const newConversations = conversations.filter((c) => c.id !== conversationId);
-    setConversations(newConversations);
-    
-    if (currentConversationId === conversationId) {
-      if (newConversations.length > 0) {
-        const latest = newConversations[newConversations.length - 1];
-        setCurrentConversationId(latest.id);
-        setMessages(latest.messages);
+    try {
+      // 从 Supabase 删除
+      const success = await deleteAIChatConversation(conversationId);
+      if (success) {
+        const newConversations = conversations.filter((c) => c.id !== conversationId);
+        setConversations(newConversations);
+        
+        if (currentConversationId === conversationId) {
+          if (newConversations.length > 0) {
+            const latest = newConversations[newConversations.length - 1];
+            setCurrentConversationId(latest.id);
+            setMessages(latest.messages);
+          } else {
+            await createNewConversation();
+          }
+        }
       } else {
-        createNewConversation();
+        console.error('删除对话失败');
       }
+    } catch (error) {
+      console.error('删除对话异常:', error);
     }
   };
 
   // 保存当前对话
-  const saveCurrentConversation = () => {
+  const saveCurrentConversation = async () => {
     if (!currentConversationId) return;
     
-    setConversations((prev) =>
-      prev.map((conv) => {
-        if (conv.id === currentConversationId) {
-          // 如果有用户消息，更新标题
-          const firstUserMessage = messages.find((m) => m.role === "user");
-          const newTitle = firstUserMessage
-            ? generateTitle(firstUserMessage.content)
-            : conv.title;
-          
-          return {
-            ...conv,
-            messages: messages,
-            title: newTitle,
-            updatedAt: new Date(),
-          };
-        }
-        return conv;
-      })
-    );
+    try {
+      // 如果有用户消息，更新标题
+      const firstUserMessage = messages.find((m) => m.role === "user");
+      const currentConv = conversations.find((c) => c.id === currentConversationId);
+      const newTitle = firstUserMessage
+        ? generateTitle(firstUserMessage.content)
+        : (currentConv?.title || "新對話");
+      
+      // 保存到 Supabase
+      const savedConv = await saveAIChatConversation(currentConversationId, newTitle, messages);
+      if (savedConv) {
+        const updatedConversation = convertFromSupabase(savedConv);
+        setConversations((prev) =>
+          prev.map((conv) => (conv.id === currentConversationId ? updatedConversation : conv))
+        );
+      }
+    } catch (error) {
+      console.error('保存对话失败:', error);
+    }
   };
 
 
@@ -476,8 +557,13 @@ export function AIChatPage({ onNavigate }: AIChatPageProps) {
     }
 
     // 如果没有当前对话，创建新对话
-    if (!currentConversationId) {
-      createNewConversation();
+    let conversationId = currentConversationId;
+    if (!conversationId) {
+      conversationId = await createNewConversation();
+      if (!conversationId) {
+        console.error('创建新对话失败，无法继续');
+        return;
+      }
     }
 
     const userMessage: Message = {
@@ -489,16 +575,6 @@ export function AIChatPage({ onNavigate }: AIChatPageProps) {
 
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
-    
-    // 如果是新对话的第一条用户消息，更新标题
-    if (currentConversationId && messages.length === 1) {
-      const title = generateTitle(inputValue);
-      setConversations((prev) =>
-        prev.map((conv) =>
-          conv.id === currentConversationId ? { ...conv, title } : conv
-        )
-      );
-    }
     
     const currentInput = inputValue;
     setInputValue("");
@@ -566,15 +642,21 @@ ${gradesData}
         const finalMessages = [...newMessages, aiResponse];
         setMessages(finalMessages);
         
-        // 保存对话
-        if (currentConversationId) {
-          setConversations((prev) =>
-            prev.map((conv) =>
-              conv.id === currentConversationId
-                ? { ...conv, messages: finalMessages, updatedAt: new Date() }
-                : conv
-            )
-          );
+        // 保存对话到 Supabase
+        if (conversationId) {
+          const currentConv = conversations.find((c) => c.id === conversationId);
+          const firstUserMessage = finalMessages.find((m) => m.role === "user");
+          const newTitle = firstUserMessage
+            ? generateTitle(firstUserMessage.content)
+            : (currentConv?.title || "新對話");
+          
+          const savedConv = await saveAIChatConversation(conversationId, newTitle, finalMessages);
+          if (savedConv) {
+            const updatedConversation = convertFromSupabase(savedConv);
+            setConversations((prev) =>
+              prev.map((conv) => (conv.id === conversationId ? updatedConversation : conv))
+            );
+          }
         }
       } else {
         console.warn('⚠️ API 未就緒，使用模擬響應');
@@ -595,15 +677,21 @@ ${gradesData}
         const finalMessages = [...newMessages, aiResponse];
         setMessages(finalMessages);
         
-        // 保存对话
-        if (currentConversationId) {
-          setConversations((prev) =>
-            prev.map((conv) =>
-              conv.id === currentConversationId
-                ? { ...conv, messages: finalMessages, updatedAt: new Date() }
-                : conv
-            )
-          );
+        // 保存对话到 Supabase
+        if (conversationId) {
+          const currentConv = conversations.find((c) => c.id === conversationId);
+          const firstUserMessage = finalMessages.find((m) => m.role === "user");
+          const newTitle = firstUserMessage
+            ? generateTitle(firstUserMessage.content)
+            : (currentConv?.title || "新對話");
+          
+          const savedConv = await saveAIChatConversation(conversationId, newTitle, finalMessages);
+          if (savedConv) {
+            const updatedConversation = convertFromSupabase(savedConv);
+            setConversations((prev) =>
+              prev.map((conv) => (conv.id === conversationId ? updatedConversation : conv))
+            );
+          }
         }
       }
     } catch (error) {
@@ -618,15 +706,21 @@ ${gradesData}
       const finalMessages = [...newMessages, errorMessage];
       setMessages(finalMessages);
       
-      // 保存对话
-      if (currentConversationId) {
-        setConversations((prev) =>
-          prev.map((conv) =>
-            conv.id === currentConversationId
-              ? { ...conv, messages: finalMessages, updatedAt: new Date() }
-              : conv
-          )
-        );
+      // 保存对话到 Supabase
+      if (conversationId) {
+        const currentConv = conversations.find((c) => c.id === conversationId);
+        const firstUserMessage = finalMessages.find((m) => m.role === "user");
+        const newTitle = firstUserMessage
+          ? generateTitle(firstUserMessage.content)
+          : (currentConv?.title || "新對話");
+        
+        const savedConv = await saveAIChatConversation(conversationId, newTitle, finalMessages);
+        if (savedConv) {
+          const updatedConversation = convertFromSupabase(savedConv);
+          setConversations((prev) =>
+            prev.map((conv) => (conv.id === conversationId ? updatedConversation : conv))
+          );
+        }
       }
     } finally {
       setIsTyping(false);
@@ -994,14 +1088,6 @@ ${gradesData}
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Mobile Sidebar Overlay */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-30 md:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
     </div>
   );
 }

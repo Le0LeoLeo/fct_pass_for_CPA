@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Mic, MicOff, Trash2, Volume2, ArrowLeft, Sparkles, Zap, Clock, MessageSquare, Save, CheckCircle, ChevronRight, X, Plus, Settings, Award, Loader2, Info, ChevronDown, ChevronUp } from "lucide-react";
+import { Mic, MicOff, Trash2, Volume2, ArrowLeft, Sparkles, Zap, Clock, MessageSquare, Save, CheckCircle, ChevronRight, ChevronLeft, X, Plus, Settings, Award, Loader2, Info, ChevronDown, ChevronUp } from "lucide-react";
 import { getBaiduAccessToken, speechToText, textToSpeech, callErnieChatAPI } from "../services/api";
 import { getBaiduApiConfig, saveInterviewRecord, getInterviewRecords, deleteInterviewRecord, InterviewRecord, updateInterviewRecord } from "../services/supabase";
 import { Button } from "./ui/button";
@@ -33,7 +33,13 @@ export function InterviewPracticePage({ onNavigate }: InterviewPracticePageProps
   const [conversationHistory, setConversationHistory] = useState<Array<{ role: string; content: string }>>([]);
   const [apiConfigLoaded, setApiConfigLoaded] = useState(false);
   const [isTTSPlaying, setIsTTSPlaying] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // 移动端默认关闭，桌面端默认打开
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 1024; // lg 断点（1024px）
+    }
+    return true; // SSR 时默认打开
+  });
   const [interviewRecords, setInterviewRecords] = useState<InterviewRecord[]>([]);
   const [currentRecordId, setCurrentRecordId] = useState<string | null>(null);
   const [isLoadingRecords, setIsLoadingRecords] = useState(false);
@@ -1499,15 +1505,6 @@ export function InterviewPracticePage({ onNavigate }: InterviewPracticePageProps
                   )}
                 </div>
               </motion.div>
-
-              {/* Mobile Overlay */}
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="lg:hidden fixed inset-0 bg-black/50 z-30"
-                onClick={() => setSidebarOpen(false)}
-              />
             </>
           )}
         </AnimatePresence>

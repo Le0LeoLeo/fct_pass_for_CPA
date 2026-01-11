@@ -979,3 +979,143 @@ export async function deleteInterviewRecord(id: string): Promise<boolean> {
     return false;
   }
 }
+
+// ==================== AI 对话记录相关函数 ====================
+
+export interface AIChatMessage {
+  id: number;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string; // ISO 字符串格式
+}
+
+export interface AIChatConversation {
+  id: string;
+  user_id: string;
+  title: string;
+  messages: AIChatMessage[];
+  created_at: string;
+  updated_at: string;
+}
+
+// 保存 AI 对话记录（创建或更新）
+export async function saveAIChatConversation(
+  conversationId: string | null,
+  title: string,
+  messages: Array<{ id: number; role: "user" | "assistant"; content: string; timestamp: Date }>
+): Promise<AIChatConversation | null> {
+  const supabase = getSupabaseClient();
+  
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      throw new Error('用户未登录');
+    }
+
+    // 转换消息格式（将 Date 转换为 ISO 字符串）
+    const formattedMessages: AIChatMessage[] = messages.map(msg => ({
+      id: msg.id,
+      role: msg.role,
+      content: msg.content,
+      timestamp: msg.timestamp.toISOString(),
+    }));
+
+    if (conversationId) {
+      // 更新现有对话
+      const { data, error } = await supabase
+        .from('ai_chat_conversations')
+        .update({
+          title: title,
+          messages: formattedMessages,
+        })
+        .eq('id', conversationId)
+        .eq('user_id', user.id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('更新 AI 对话记录失败:', error);
+        throw error;
+      }
+
+      return data as AIChatConversation;
+    } else {
+      // 创建新对话
+      const { data, error } = await supabase
+        .from('ai_chat_conversations')
+        .insert({
+          user_id: user.id,
+          title: title,
+          messages: formattedMessages,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('创建 AI 对话记录失败:', error);
+        throw error;
+      }
+
+      return data as AIChatConversation;
+    }
+  } catch (error) {
+    console.error('保存 AI 对话记录异常:', error);
+    return null;
+  }
+}
+
+// 获取用户的所有 AI 对话记录
+export async function getAIChatConversations(): Promise<AIChatConversation[]> {
+  const supabase = getSupabaseClient();
+  
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from('ai_chat_conversations')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('updated_at', { ascending: false });
+
+    if (error) {
+      console.error('获取 AI 对话记录失败:', error);
+      return [];
+    }
+
+    return (data || []) as AIChatConversation[];
+  } catch (error) {
+    console.error('获取 AI 对话记录异常:', error);
+    return [];
+  }
+}
+
+// 删除 AI 对话记录
+export async function deleteAIChatConversation(id: string): Promise<boolean> {
+  const supabase = getSupabaseClient();
+  
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      throw new Error('用户未登录');
+    }
+
+    const { error } = await supabase
+      .from('ai_chat_conversations')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', user.id);
+
+    if (error) {
+      console.error('删除 AI 对话记录失败:', error);
+      throw error;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('删除 AI 对话记录异常:', error);
+    return false;
+  }
+}
