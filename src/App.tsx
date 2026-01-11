@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { LoginPage } from "./components/LoginPage";
 import { HomePage } from "./components/HomePage";
@@ -35,11 +35,11 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
 
-  // 檢查認證狀態
+  // 瑼Ｘ隤????
   useEffect(() => {
     checkSession();
 
-    // 監聽認證狀態變化
+    // ??隤??????
     const { data: { subscription } } = onAuthStateChange(async (event, session) => {
       console.log('Auth state changed:', event, session);
       
@@ -83,8 +83,8 @@ export default function App() {
   };
 
   const handleLogin = () => {
-    // 這個函數現在由認證狀態監聽器處理
-    // 保留以保持向後兼容
+    // ??貊?函隤????賢??
+    // 靽?隞乩???敺摰?
   };
 
   const handleLogout = async () => {
@@ -103,7 +103,7 @@ export default function App() {
     setIsMobileMenuOpen(false); // Close mobile menu after navigation
   };
 
-  // 載入中顯示
+  // 頛銝剝＊蝷?
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50 flex items-center justify-center">
@@ -113,7 +113,7 @@ export default function App() {
           className="text-center"
         >
           <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" />
-          <p className="text-gray-600">載入中...</p>
+          <p className="text-gray-600">頛銝?..</p>
         </motion.div>
       </div>
     );
