@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { LoginPage } from "./components/LoginPage";
 import { HomePage } from "./components/HomePage";
@@ -29,30 +29,56 @@ type Page =
   | "interview-practice";
 
 export default function App() {
-  const [currentPage, setCurrentPage] = useState<Page>("login");
+  // 從 localStorage 恢復上次的頁面狀態
+  const getInitialPage = (): Page => {
+    const savedPage = localStorage.getItem('currentPage') as Page;
+    return savedPage && savedPage !== "login" ? savedPage : "login";
+  };
+
+  const [currentPage, setCurrentPage] = useState<Page>(getInitialPage());
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
+  const isInitialCheckRef = useRef(true);
+  const currentPageRef = useRef<Page>(getInitialPage());
 
-  // 瑼Ｘ隤????
+  // 保存當前頁面到 localStorage 並更新 ref
+  useEffect(() => {
+    currentPageRef.current = currentPage;
+    if (currentPage !== "login" && isLoggedIn) {
+      localStorage.setItem('currentPage', currentPage);
+    }
+  }, [currentPage, isLoggedIn]);
+
+  // 檢查認證狀態
   useEffect(() => {
     checkSession();
 
-    // ??隤??????
+    // 監聽認證狀態變化
     const { data: { subscription } } = onAuthStateChange(async (event, session) => {
       console.log('Auth state changed:', event, session);
       
       if (session?.user) {
         setUser(session.user);
         setIsLoggedIn(true);
-        if (currentPage === "login") {
-          setCurrentPage("home");
+        // 只在初始檢查或從登出狀態轉為登入狀態時才改變頁面
+        // 避免在窗口重新獲得焦點時重置頁面
+        if (isInitialCheckRef.current) {
+          const savedPage = localStorage.getItem('currentPage') as Page;
+          setCurrentPage(savedPage && savedPage !== "login" ? savedPage : "home");
+          isInitialCheckRef.current = false;
+        } else if (currentPageRef.current === "login") {
+          // 只有在當前是登入頁時才跳轉
+          const savedPage = localStorage.getItem('currentPage') as Page;
+          setCurrentPage(savedPage && savedPage !== "login" ? savedPage : "home");
         }
+        // 如果已經在其他頁面，保持當前頁面不變
       } else {
         setUser(null);
         setIsLoggedIn(false);
         setCurrentPage("login");
+        localStorage.removeItem('currentPage');
       }
       setIsLoading(false);
     });
@@ -60,7 +86,7 @@ export default function App() {
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, []); // 移除 currentPage 依賴，避免循環觸發
 
   const checkSession = async () => {
     try {
@@ -68,23 +94,30 @@ export default function App() {
       if (session?.user) {
         setUser(session.user);
         setIsLoggedIn(true);
-        setCurrentPage("home");
+        // 只在初始載入時恢復保存的頁面，否則保持當前頁面
+        if (isInitialCheckRef.current) {
+          const savedPage = localStorage.getItem('currentPage') as Page;
+          setCurrentPage(savedPage && savedPage !== "login" ? savedPage : "home");
+          isInitialCheckRef.current = false;
+        }
       } else {
         setIsLoggedIn(false);
         setCurrentPage("login");
+        localStorage.removeItem('currentPage');
       }
     } catch (error) {
       console.error('Error checking session:', error);
       setIsLoggedIn(false);
       setCurrentPage("login");
+      localStorage.removeItem('currentPage');
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleLogin = () => {
-    // ??貊?函隤????賢??
-    // 靽?隞乩???敺摰?
+    // 這個函數現在由認證狀態監聽器處理
+    // 保留以保持向後兼容
   };
 
   const handleLogout = async () => {
@@ -93,17 +126,23 @@ export default function App() {
       setUser(null);
       setIsLoggedIn(false);
       setCurrentPage("login");
+      localStorage.removeItem('currentPage');
     } catch (error) {
       console.error('Logout error:', error);
     }
   };
 
   const handleNavigate = (page: string) => {
-    setCurrentPage(page as Page);
+    const newPage = page as Page;
+    setCurrentPage(newPage);
     setIsMobileMenuOpen(false); // Close mobile menu after navigation
+    // 保存頁面狀態（登入狀態下）
+    if (isLoggedIn && newPage !== "login") {
+      localStorage.setItem('currentPage', newPage);
+    }
   };
 
-  // 頛銝剝＊蝷?
+  // 載入中顯示
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50 flex items-center justify-center">
@@ -113,7 +152,7 @@ export default function App() {
           className="text-center"
         >
           <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" />
-          <p className="text-gray-600">頛銝?..</p>
+          <p className="text-gray-600">載入中...</p>
         </motion.div>
       </div>
     );
