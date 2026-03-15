@@ -237,6 +237,16 @@ export function UniversityDatabasePage({ onNavigate }: UniversityDatabasePagePro
     loadData();
   }, []);
 
+  useEffect(() => {
+    if (!loading) {
+      const selectedId = localStorage.getItem('selected_university_id');
+      if (selectedId) {
+        setSelectedUniversity(selectedId);
+        localStorage.removeItem('selected_university_id');
+      }
+    }
+  }, [loading]);
+
 
   const loadData = async () => {
     setLoading(true);

@@ -65,27 +65,33 @@ export interface BaiduTokenResponse {
   expires_in: number;
 }
 
+async function getSupabaseFunctionHeaders(anonKey: string): Promise<Record<string, string>> {
+  const supabase = getSupabaseClient();
+  const { data: { session } } = await supabase.auth.getSession();
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'apikey': anonKey,
+  };
+
+  const isSessionValid = Boolean(
+    session?.access_token &&
+    (!session.expires_at || session.expires_at * 1000 > Date.now())
+  );
+
+  if (isSessionValid) {
+    headers['Authorization'] = `Bearer ${session!.access_token}`;
+  }
+
+  return headers;
+}
+
 export async function getBaiduAccessToken(apiKey: string, secretKey: string): Promise<string> {
   // Use Supabase Edge Function to avoid CORS issues
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://aialjdzjuozrnqwlblyz.supabase.co';
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_GtfEWqxJgDwM61N782DaxQ_7NG_Lzae';
   
-  const supabase = getSupabaseClient();
-  const { data: { session } } = await supabase.auth.getSession();
-  
-  // Use direct fetch to ensure proper headers
-  // Only send Authorization header if we have a valid session
-  // Otherwise, only send apikey header (Supabase will accept this for anonymous access)
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'apikey': anonKey,
-  };
-  
-  // Only add Authorization header if we have a valid session token
-  // Don't send it if session is null/undefined to avoid "Invalid JWT" error
-  if (session && session.access_token) {
-    headers['Authorization'] = `Bearer ${session.access_token}`;
-  }
+  const headers = await getSupabaseFunctionHeaders(anonKey);
   
   const response = await fetch(`${supabaseUrl}/functions/v1/baidu-api`, {
     method: 'POST',
@@ -106,7 +112,11 @@ export async function getBaiduAccessToken(apiKey: string, secretKey: string): Pr
   return data.access_token;
 }
 
-export async function speechToText(audioBlob: Blob, accessToken: string): Promise<string> {
+export async function speechToText(
+  audioBlob: Blob,
+  accessToken: string,
+  options: { devPid?: string } = {}
+): Promise<string> {
   // Convert blob to base64
   const arrayBuffer = await audioBlob.arrayBuffer();
   const uint8Array = new Uint8Array(arrayBuffer);
@@ -116,18 +126,7 @@ export async function speechToText(audioBlob: Blob, accessToken: string): Promis
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://aialjdzjuozrnqwlblyz.supabase.co';
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_GtfEWqxJgDwM61N782DaxQ_7NG_Lzae';
   
-  const supabase = getSupabaseClient();
-  const { data: { session } } = await supabase.auth.getSession();
-  
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'apikey': anonKey,
-  };
-  
-  // Only add Authorization header if we have a valid session token
-  if (session && session.access_token) {
-    headers['Authorization'] = `Bearer ${session.access_token}`;
-  }
+  const headers = await getSupabaseFunctionHeaders(anonKey);
   
   const response = await fetch(`${supabaseUrl}/functions/v1/baidu-api`, {
     method: 'POST',
@@ -136,6 +135,7 @@ export async function speechToText(audioBlob: Blob, accessToken: string): Promis
       action: 'speech_to_text',
       accessToken,
       audioData: base64Audio,
+      devPid: options.devPid,
     }),
   });
 
@@ -162,18 +162,7 @@ export async function textToSpeech(
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://aialjdzjuozrnqwlblyz.supabase.co';
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_GtfEWqxJgDwM61N782DaxQ_7NG_Lzae';
   
-  const supabase = getSupabaseClient();
-  const { data: { session } } = await supabase.auth.getSession();
-  
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'apikey': anonKey,
-  };
-  
-  // Only add Authorization header if we have a valid session token
-  if (session && session.access_token) {
-    headers['Authorization'] = `Bearer ${session.access_token}`;
-  }
+  const headers = await getSupabaseFunctionHeaders(anonKey);
   
   const response = await fetch(`${supabaseUrl}/functions/v1/baidu-api`, {
     method: 'POST',
@@ -205,24 +194,13 @@ export async function callErnieAPI(
   userInput: string,
   conversationHistory: Array<{ role: string; content: string }>,
   accessToken: string,
-  model: string = 'ernie-4.5-turbo-128k' // 使用文心4.5T
+  model: string = 'ernie-5.0' // 使用文心5.0
 ): Promise<string> {
   // Use Supabase Edge Function to avoid CORS issues
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://aialjdzjuozrnqwlblyz.supabase.co';
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_GtfEWqxJgDwM61N782DaxQ_7NG_Lzae';
   
-  const supabase = getSupabaseClient();
-  const { data: { session } } = await supabase.auth.getSession();
-  
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'apikey': anonKey,
-  };
-  
-  // Only add Authorization header if we have a valid session token
-  if (session && session.access_token) {
-    headers['Authorization'] = `Bearer ${session.access_token}`;
-  }
+  const headers = await getSupabaseFunctionHeaders(anonKey);
   
   const response = await fetch(`${supabaseUrl}/functions/v1/baidu-api`, {
     method: 'POST',
@@ -280,12 +258,12 @@ async function callErnieChatAPIFast(
 
   // 優化的請求參數：適度提高temperature增加多樣性，避免重複
   const requestBody = {
-    model: 'ernie-4.5-turbo-128k',
+    model: 'ernie-4.5-turbo-vl',
     messages: messages,
-    temperature: 0.8, // 提高temperature增加問題多樣性，避免重複
-    top_p: 0.9,
+    temperature: 0.7, // 適度降低temperature，加快穩定生成
+    top_p: 0.8,
     penalty_score: 1,
-    max_output_tokens: 800, // 限制輸出長度，加快生成
+    max_output_tokens: 700, // 提高輸出長度避免截斷
     stop: [],
     web_search: {
       enable: false,
@@ -328,26 +306,26 @@ async function callErnieChatAPIFast(
   throw new Error(`API response format unexpected: ${JSON.stringify(data).substring(0, 200)}`);
 }
 
-// 文心 4.5 聊天 API（用于 AI 助手）- 使用新的千帆 API 格式
+// 文心 5.0 聊天 API（用于 AI 助手）- 使用新的千帆 API 格式
 export async function callErnieChatAPI(
   userInput: string,
   conversationHistory: Array<{ role: string; content: string }>,
   bearerToken: string,
-  model: string = 'ernie-4.5-turbo-128k',
+  model: string = 'ernie-5.0',
   customSystemPrompt?: string // 允许自定义 system prompt
 ): Promise<string> {
-  const systemPrompt = customSystemPrompt || `你是一位专业的AI升学辅导助手，可以帮助学生：
-1. 推荐适合的科系和专业
-2. 解答升学相关问题
-3. 提供面试准备建议
-4. 分析学校与科系信息
-5. 进行分数落点分析
+  const systemPrompt = customSystemPrompt || `你是一位專業的AI升學輔導助手，可以協助學生：
+1. 推薦適合的科系與專業
+2. 解答升學相關問題
+3. 提供面試準備建議
+4. 分析學校與科系資訊
+5. 進行分數落點分析
 
 要求：
-- 回答要专业、准确、友好
-- 根据学生的具体情况提供个性化建议
-- 使用清晰易懂的语言
-- 可以适当使用列表和分段来组织回答`;
+- 回答要專業、準確、友好
+- 根據學生的具體情況提供個性化建議
+- 使用清晰易懂的語言
+- 可適當使用列表與分段來組織回答`;
 
   const messages = [
     {
@@ -499,7 +477,7 @@ export interface GradeStatistics {
   };
 }
 
-// 使用文心 4.5T 进行成绩统计分析
+// 使用文心 5.0 进行成绩统计分析
 export async function analyzeGradeStatistics(
   statistics: GradeStatistics,
   bearerToken: string
@@ -510,49 +488,49 @@ export async function analyzeGradeStatistics(
   strengths: string[];
   improvements: string[];
 }> {
-  const systemPrompt = `你是一位专业的升学辅导AI助手，擅长分析学生成绩数据并提供升学建议。
+  const systemPrompt = `你是一位專業的升學輔導AI助手，擅長分析學生的成績資料並提供升學建議。
 
-重要：该学生的成绩计算采用加权平均系统，权重配置如下：
-- 测验成绩：20%
-- 考试成绩：20%
-- 日常表现（作业、报告、实验等）：60%
-成绩统计中的平均分已经考虑了这些权重因素。
+重要：該學生的成績計算採用加權平均系統，權重配置如下：
+- 測驗成績：20%
+- 考試成績：20%
+- 日常表現（作業、報告、實驗等）：60%
+成績統計中的平均分已考量這些權重因素。
 
 要求：
-1. 根据成绩统计数据，预估学测级分（15级分制，范围约45-60级分）
-2. 推荐3-5个适合的科系和专业
-3. 分析学习优势和需要加强的科目
-4. 提供具体的改进建议，特别关注日常表现（权重60%）的重要性
-5. 回答要专业、准确、友好
-6. 使用清晰易懂的语言，可以适当使用列表和分段
+1. 根據成績統計資料，預估學測級分（15級分制，範圍約45-60級分）
+2. 推薦3-5個適合的科系與專業
+3. 分析學習優勢與需要加強的科目
+4. 提供具體的改進建議，特別關注日常表現（權重60%）的重要性
+5. 回答要專業、準確、友好
+6. 使用清晰易懂的語言，可適當使用列表與分段
 
-输出格式要求：
-- 预估学测级分：XX-XX级分（例如：56-58级分）
-- 推荐科系：用逗号分隔，例如：資訊工程、電機工程、機械工程
-- 分析：一段话总结学习情况
-- 优势科目：用逗号分隔
-- 需要加强：用逗号分隔`;
+輸出格式要求：
+- 預估學測級分：XX-XX級分（例如：56-58級分）
+- 推薦科系：用逗號分隔，例如：資訊工程、電機工程、機械工程
+- 分析：一段話總結學習情況
+- 優勢科目：用逗號分隔
+- 需要加強：用逗號分隔`;
 
-  const userPrompt = `请分析以下成绩统计数据：
+  const userPrompt = `請分析以下成績統計資料：
 
-总体统计：
-- 总成绩事件数：${statistics.overall.totalEvents}
-- 已评分事件数：${statistics.overall.totalScored}
+整體統計：
+- 總成績事件數：${statistics.overall.totalEvents}
+- 已評分事件數：${statistics.overall.totalScored}
 - 完成度：${statistics.overall.completion}%
-- 总体平均分：${statistics.overall.overallAvg}%
+- 整體平均分：${statistics.overall.overallAvg}%
 - 平均得分：${statistics.overall.overallScore} / ${statistics.overall.overallMax}
 
-各科表现：
+各科表現：
 ${statistics.bySubject.map(subj => 
-  `- ${subj.subject}：平均 ${subj.avg}%，已完成 ${subj.scored}/${subj.total} 项（完成度 ${subj.completion}%）`
+  `- ${subj.subject}：平均 ${subj.avg}%，已完成 ${subj.scored}/${subj.total} 項（完成度 ${subj.completion}%）`
 ).join('\n')}
 
-请提供：
-1. 预估学测级分
-2. 推荐科系和专业
-3. 学习情况分析
-4. 优势科目
-5. 需要加强的科目`;
+請提供：
+1. 預估學測級分
+2. 推薦科系與專業
+3. 學習情況分析
+4. 優勢科目
+5. 需要加強的科目`;
 
   const messages = [
     {
@@ -566,7 +544,7 @@ ${statistics.bySubject.map(subj =>
   ];
 
   const requestBody = {
-    model: 'ernie-4.5-turbo-128k',
+    model: 'ernie-5.0',
     messages: messages,
     temperature: 0.8,
     top_p: 0.8,
@@ -863,6 +841,9 @@ export async function generateQuestionnaireQuestion(
           jsonStr = jsonMatch[0];
         }
       }
+
+      // 移除 JSON 中的行內註解（//）以避免解析失敗
+      jsonStr = jsonStr.replace(/\/\/.*$/gm, '');
       
       questionData = JSON.parse(jsonStr);
     } catch (parseError) {
@@ -872,12 +853,32 @@ export async function generateQuestionnaireQuestion(
         const cleaned = response.replace(/[^\x20-\x7E\n\r]/g, ''); // 移除非ASCII字符
         const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
-          questionData = JSON.parse(jsonMatch[0]);
+          const cleanedJson = jsonMatch[0].replace(/\/\/.*$/gm, '');
+          questionData = JSON.parse(cleanedJson);
         } else {
           throw parseError;
         }
       } catch (e) {
-        throw new Error('AI返回的格式不正確，無法解析為JSON');
+        // 嘗試截斷修復：補齊括號並移除尾端不完整內容
+        try {
+          let trimmed = response.trim();
+          const startIndex = trimmed.indexOf('{');
+          if (startIndex >= 0) {
+            trimmed = trimmed.slice(startIndex);
+          }
+          const lastBrace = trimmed.lastIndexOf('}');
+          if (lastBrace >= 0) {
+            trimmed = trimmed.slice(0, lastBrace + 1);
+          }
+          if (trimmed) {
+            const cleanedTrimmed = trimmed.replace(/\/\/.*$/gm, '');
+            questionData = JSON.parse(cleanedTrimmed);
+          } else {
+            throw e;
+          }
+        } catch (finalError) {
+          throw new Error('AI返回的格式不正確，無法解析為JSON');
+        }
       }
     }
     

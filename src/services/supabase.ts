@@ -155,6 +155,10 @@ export async function loadUniversitiesFromSupabase(): Promise<University[]> {
       .order('name', { ascending: true });
     
     if (error) {
+      if (error.code === 'PGRST205') {
+        console.warn('Universities table not found, returning empty list.');
+        return [];
+      }
       console.error('Supabase error:', error);
       throw error;
     }
@@ -192,6 +196,10 @@ export async function searchUniversities(query: string): Promise<University[]> {
       .order('name', { ascending: true });
     
     if (error) {
+      if (error.code === 'PGRST205') {
+        console.warn('Universities table not found, returning empty search results.');
+        return [];
+      }
       console.error('Supabase search error:', error);
       throw error;
     }
@@ -229,6 +237,10 @@ export async function getUniversityById(id: string): Promise<University | null> 
       .single();
     
     if (error) {
+      if (error.code === 'PGRST205') {
+        console.warn('Universities table not found, returning null.');
+        return null;
+      }
       console.error('Supabase get error:', error);
       return null;
     }

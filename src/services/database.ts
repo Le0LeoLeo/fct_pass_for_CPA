@@ -1,8 +1,9 @@
 // 統一的資料庫服務接口，支持 Firebase 和 Supabase 切換
 
-import { loadUniversities as loadFromFirebase, University as FirebaseUniversity } from './firebase';
+import { loadUniversities as loadFromFirebase, searchUniversities as searchUniversitiesFromFirebase, University as FirebaseUniversity } from './firebase';
 import { 
-  loadUniversitiesFromSupabase, 
+  loadUniversitiesFromSupabase,
+  searchUniversities as searchUniversitiesFromSupabase,
   University as SupabaseUniversity,
   initializeSupabase 
 } from './supabase';
@@ -60,5 +61,34 @@ export async function loadUniversities(): Promise<University[]> {
     } else {
       throw error;
     }
+  }
+}
+
+export async function searchUniversities(query: string): Promise<University[]> {
+  let provider = currentProvider;
+
+  if (provider === 'auto') {
+    provider = await detectProvider();
+  }
+
+  try {
+    if (provider === 'supabase') {
+      return await searchUniversitiesFromSupabase(query);
+    }
+    return await searchUniversitiesFromFirebase(query);
+  } catch (error) {
+    console.error(`Error searching from ${provider}:`, error);
+
+    if (provider === 'firebase') {
+      console.log('Firebase search failed, falling back to Supabase...');
+      try {
+        return await searchUniversitiesFromSupabase(query);
+      } catch (fallbackError) {
+        console.error('Both providers failed');
+        throw error;
+      }
+    }
+
+    throw error;
   }
 }

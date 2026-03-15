@@ -1,53 +1,53 @@
-# 自适应问卷系统使用说明
+# 自適應問卷系統使用說明
 
 ## 功能概述
 
-本系统实现了一个基于文心4.5T的**自适应人格与职涯问卷系统**，具有以下特点：
+本系統實作一個基於文心4.5 Turbo VL的**自適應人格與職涯問卷系統**，具有以下特點：
 
-1. **不使用固定题数** - 根据用户回答动态生成问题
-2. **AI即时生成问题** - 每个问题由文心4.5T根据上一题回答即时生成
-3. **问题由浅入深** - 破冰 → 行为 → 情境三个阶段
-4. **双重评估系统** - 同时评估MBTI和Holland职业兴趣类型
-5. **智能收敛机制** - 当某一维度差距≥3且信心值≥0.8时，该维度停止出题
+1. **不使用固定題數** - 依據使用者回答動態生成問題
+2. **AI即時生成問題** - 每個問題由文心5.0根據上一題回答即時生成
+3. **問題由淺入深** - 破冰 → 行為 → 情境三個階段
+4. **雙重評估系統** - 同時評估MBTI與Holland職業興趣類型
+5. **智能收斂機制** - 當某一維度差距≥3且信心值≥0.8時，該維度停止出題
 
-## 系统架构
+## 系統架構
 
-### 核心组件
+### 核心元件
 
-1. **API服务** (`src/services/api.ts`)
-   - `generateQuestionnaireQuestion()` - 生成问卷问题
-   - `updatePersonalityWeights()` - 更新人格权重
-   - `calculateConfidenceScore()` - 计算信心值
-   - `checkDimensionConvergence()` - 检查维度收敛
+1. **API服務** (`src/services/api.ts`)
+   - `generateQuestionnaireQuestion()` - 生成問卷問題
+   - `updatePersonalityWeights()` - 更新人格權重
+   - `calculateConfidenceScore()` - 計算信心值
+   - `checkDimensionConvergence()` - 檢查維度收斂
 
-2. **问卷页面** (`src/components/QuestionnairePage.tsx`)
-   - 自适应问卷UI
-   - 状态管理（保存到localStorage）
-   - 结果展示
+2. **問卷頁面** (`src/components/QuestionnairePage.tsx`)
+   - 自適應問卷UI
+   - 狀態管理（保存到localStorage）
+   - 結果展示
 
-### 数据结构
+### 資料結構
 
-#### 人格权重 (PersonalityWeights)
+#### 人格權重 (PersonalityWeights)
 ```typescript
 {
   mbti: {
-    E: number, I: number,  // 外向/内向
-    S: number, N: number,  // 感觉/直觉
+    E: number, I: number,  // 外向/內向
+    S: number, N: number,  // 感覺/直覺
     T: number, F: number,  // 思考/情感
-    J: number, P: number   // 判断/知觉
+    J: number, P: number   // 判斷/知覺
   },
   holland: {
-    R: number,  // 现实型
+    R: number,  // 現實型
     I: number,  // 研究型
-    A: number,  // 艺术型
-    S: number,  // 社会型
-    E: number,  // 企业型
-    C: number   // 常规型
+    A: number,  // 藝術型
+    S: number,  // 社會型
+    E: number,  // 企業型
+    C: number   // 常規型
   }
 }
 ```
 
-#### 问卷状态 (QuestionnaireState)
+#### 問卷狀態 (QuestionnaireState)
 ```typescript
 {
   currentWeights: PersonalityWeights,
@@ -68,179 +68,179 @@
 ## 工作流程
 
 1. **初始化**
-   - 所有人格权重初始化为0
-   - 阶段设为'icebreaker'
-   - 从localStorage恢复之前的状态（如果有）
+   - 所有人格權重初始化為0
+   - 階段設為'icebreaker'
+   - 從localStorage恢復之前的狀態（若有）
 
-2. **生成问题**
-   - 调用`generateQuestionnaireQuestion()`，传入当前状态和上一题回答
-   - AI根据未收敛的维度生成问题
-   - 问题包含3-4个选项，每个选项包含权重变化
+2. **生成問題**
+   - 呼叫`generateQuestionnaireQuestion()`，傳入目前狀態與上一題回答
+   - AI依據未收斂的維度生成問題
+   - 問題包含3-4個選項，每個選項包含權重變化
 
-3. **用户回答**
-   - 用户选择选项后，更新人格权重
-   - 重新计算信心值
-   - 检查维度收敛
+3. **使用者回答**
+   - 使用者選擇選項後，更新人格權重
+   - 重新計算信心值
+   - 檢查維度收斂
 
-4. **收敛判断**
-   - MBTI维度：如果两个值的差距≥3且信心值≥0.8，则收敛
-   - Holland维度：如果该类型与其他类型的最大差距≥3且信心值≥0.8，则收敛
-   - 收敛的维度不再出题
+4. **收斂判斷**
+   - MBTI維度：若兩個值的差距≥3且信心值≥0.8，則收斂
+   - Holland維度：若該類型與其他類型的最大差距≥3且信心值≥0.8，則收斂
+   - 收斂的維度不再出題
 
-5. **完成问卷**
-   - 当所有维度都收敛时，问卷完成
-   - 显示MBTI和Holland结果
+5. **完成問卷**
+   - 當所有維度都收斂時，問卷完成
+   - 顯示MBTI與Holland結果
 
-## AI Prompt规则
+## AI Prompt規則
 
-系统向文心4.5T发送的prompt包含以下规则：
+系統向文心4.5 Turbo VL送出的prompt包含以下規則：
 
-1. **禁止提及专业术语**
-   - 不能在问题中提及"MBTI"、"Holland"、"性格测试"等
+1. **禁止提及專業術語**
+   - 不能在問題中提及"MBTI"、"Holland"、"性格測試"等
 
-2. **问题风格**
-   - 必须是生活化或校园情境
-   - 贴近高中生的日常经验
+2. **問題風格**
+   - 必須是生活化或校園情境
+   - 貼近高中生的日常經驗
 
-3. **阶段控制**
-   - 破冰阶段：轻松、简单的问题
-   - 行为阶段：询问日常行为和偏好
-   - 情境阶段：询问在特定情境下的选择
+3. **階段控制**
+   - 破冰階段：輕鬆、簡單的問題
+   - 行為階段：詢問日常行為與偏好
+   - 情境階段：詢問在特定情境下的選擇
 
-4. **输出格式**
-   - 必须是有效的JSON
-   - 包含问题内容和选项
-   - 每个选项包含权重变化
+4. **輸出格式**
+   - 必須是有效的JSON
+   - 包含問題內容與選項
+   - 每個選項包含權重變化
 
 ## 配置要求
 
 ### 必需的API配置
 
-**参考AIChatPage的实现方式**，系统支持多种配置方式：
+**參考AIChatPage的實作方式**，系統支援多種配置方式：
 
-#### 方式1：Supabase配置（推荐）
+#### 方式1：Supabase配置（建議）
 
 在Supabase的`api_configs`表中配置：
 
-1. **百度API Key和Secret Key**
+1. **百度API Key與Secret Key**
    - `baidu_api_key`
    - `baidu_secret_key`
 
-2. **或者直接配置Bearer Token**
-   - `baidu_api_token`（如果配置了则优先使用，无需再获取access token）
+2. **或直接配置Bearer Token**
+   - `baidu_api_token`（若已配置則優先使用，無需再取得access token）
 
-#### 方式2：LocalStorage配置（备用）
+#### 方式2：LocalStorage配置（備用）
 
-如果Supabase没有配置，系统会自动尝试从localStorage获取：
+若Supabase沒有配置，系統會自動嘗試從localStorage取得：
 - `baidu_api_key`
 - `baidu_secret_key`
 - `baidu_api_token`
 
-### 获取Bearer Token的流程
+### 取得Bearer Token的流程
 
-系统初始化API的流程（与AIChatPage完全一致）：
+系統初始化API的流程（與AIChatPage完全一致）：
 
-1. **优先使用apiToken**：如果Supabase中有`baidu_api_token`，直接使用
-2. **使用OAuth获取**：如果有`apiKey`和`secretKey`，通过`getBaiduAccessToken()`获取
-3. **LocalStorage备用**：如果Supabase没有配置，尝试从localStorage获取
-4. **错误处理**：如果所有方式都失败，显示错误提示
+1. **優先使用apiToken**：若Supabase中有`baidu_api_token`，直接使用
+2. **使用OAuth取得**：若有`apiKey`與`secretKey`，透過`getBaiduAccessToken()`取得
+3. **LocalStorage備用**：若Supabase沒有配置，嘗試從localStorage取得
+4. **錯誤處理**：若所有方式都失敗，顯示錯誤提示
 
-### API调用方式
+### API呼叫方式
 
-问卷系统使用与AI助手相同的API调用方式：
-- 使用`callErnieChatAPI()`函数
-- 直接调用千帆API（`https://qianfan.baidubce.com/v2/chat/completions`）
-- 使用`ernie-4.5-turbo-128k`模型
-- 支持自定义system prompt
+問卷系統使用與AI助手相同的API呼叫方式：
+- 使用`callErnieChatAPI()`函式
+- 直接呼叫千帆API（`https://qianfan.baidubce.com/v2/chat/completions`）
+- 使用`ernie-4.5-turbo-vl`模型（與AI助手的「快速」模型一致）
+- 支援自訂system prompt
 
 ## 使用示例
 
-### 开始问卷
+### 開始問卷
 
-用户访问问卷页面后，系统会自动：
-1. 检查localStorage中是否有未完成的问卷
-2. 如果有，恢复状态并继续
-3. 如果没有，从第一题开始
+使用者進入問卷頁面後，系統會自動：
+1. 檢查localStorage中是否有未完成的問卷
+2. 若有，恢復狀態並繼續
+3. 若沒有，從第一題開始
 
-### 回答问题
+### 回答問題
 
-1. 用户看到AI生成的问题
-2. 选择选项
-3. 系统自动更新权重并生成下一题
+1. 使用者看到AI生成的問題
+2. 選擇選項
+3. 系統自動更新權重並生成下一題
 
-### 查看结果
+### 查看結果
 
-问卷完成后，显示：
-- MBTI性格类型（如INTJ、ENFP等）
-- Holland职业兴趣类型（如RIS、AES等）
-- 各维度的详细分数
-- 推荐科系
+問卷完成後，顯示：
+- MBTI性格類型（如INTJ、ENFP等）
+- Holland職業興趣類型（如RIS、AES等）
+- 各維度的詳細分數
+- 推薦科系
 
-## 状态保存
+## 狀態保存
 
-问卷状态会自动保存到localStorage：
-- `adaptive_questionnaire_state` - 当前问卷状态
-- `adaptive_questionnaire_final_state` - 最终完成状态
-- `questionnaire_completed_at` - 完成时间
+問卷狀態會自動保存到localStorage：
+- `adaptive_questionnaire_state` - 目前問卷狀態
+- `adaptive_questionnaire_final_state` - 最終完成狀態
+- `questionnaire_completed_at` - 完成時間
 
-## 注意事项
+## 注意事項
 
 1. **API Token**
-   - 确保已正确配置百度API的Key和Secret
-   - 或者直接配置Bearer Token
+   - 確保已正確配置百度API的Key與Secret
+   - 或直接配置Bearer Token
 
 2. **JSON解析**
-   - AI返回的响应必须是有效的JSON
-   - 系统会尝试从响应中提取JSON（如果AI添加了其他文字）
+   - AI返回的回應必須是有效的JSON
+   - 系統會嘗試從回應中提取JSON（若AI添加了其他文字）
 
-3. **收敛条件**
-   - 维度差距≥3且信心值≥0.8才会收敛
-   - 如果所有维度都收敛，问卷自动完成
+3. **收斂條件**
+   - 維度差距≥3且信心值≥0.8才會收斂
+   - 若所有維度都收斂，問卷自動完成
 
-4. **问题数量**
-   - 不固定，根据收敛情况动态调整
-   - 通常需要10-20题
+4. **問題數量**
+   - 不固定，依收斂情況動態調整
+   - 通常需要10-20題
 
 ## 故障排除
 
-### 问题：无法生成问题
-- 检查API Token是否正确配置
-- 检查网络连接
-- 查看浏览器控制台的错误信息
+### 問題：無法生成問題
+- 檢查API Token是否正確配置
+- 檢查網路連線
+- 查看瀏覽器控制台的錯誤訊息
 
-### 问题：AI返回的格式不正确
-- 系统会尝试从响应中提取JSON
-- 如果仍然失败，会显示错误信息
-- 可以重试或刷新页面
+### 問題：AI返回的格式不正確
+- 系統會嘗試從回應中提取JSON
+- 若仍然失敗，會顯示錯誤訊息
+- 可以重試或刷新頁面
 
-### 问题：问卷状态丢失
-- 检查localStorage是否被清除
-- 系统会在每次回答后自动保存状态
+### 問題：問卷狀態遺失
+- 檢查localStorage是否被清除
+- 系統會在每次回答後自動保存狀態
 
-## 技术细节
+## 技術細節
 
-### 信心值计算
+### 信心值計算
 
-- **MBTI维度**：计算两个值的差距，差距越大信心值越高
-- **Holland维度**：计算该类型与其他类型的最大差距
+- **MBTI維度**：計算兩個值的差距，差距越大信心值越高
+- **Holland維度**：計算該類型與其他類型的最大差距
 
-### 权重更新
+### 權重更新
 
-选择选项后，该选项的权重会直接加到当前权重上：
+選擇選項後，該選項的權重會直接加到目前權重上：
 ```typescript
 newWeights.mbti.E += optionWeights.mbti.E || 0;
 ```
 
-### 收敛检查
+### 收斂檢查
 
-系统在每个问题后检查所有维度：
-- 如果差距≥3且信心值≥0.8，标记为收敛
-- 收敛的维度不再生成相关问题
+系統在每個問題後檢查所有維度：
+- 若差距≥3且信心值≥0.8，標記為收斂
+- 收斂的維度不再生成相關問題
 
-## 未来改进
+## 未來改進
 
-1. 支持更多人格类型评估
-2. 优化AI prompt以提高问题质量
-3. 添加问题历史记录
-4. 支持导出问卷结果
-5. 添加更多推荐科系的匹配算法
+1. 支援更多人格類型評估
+2. 最佳化AI prompt以提升問題品質
+3. 新增問題歷史記錄
+4. 支援匯出問卷結果
+5. 增加更多推薦科系的匹配算法

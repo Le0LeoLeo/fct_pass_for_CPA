@@ -11,9 +11,11 @@ import { ProfilePage } from "./components/ProfilePage";
 import { GradesAndPracticePage } from "./components/GradesAndPracticePage";
 import { UpdateGradesPage } from "./components/UpdateGradesPage";
 import { InterviewPracticePage } from "./components/InterviewPracticePage";
+import { InterviewEvaluationPage } from "./components/InterviewEvaluationPage";
 import { Sidebar } from "./components/Sidebar";
-import { getSession, onAuthStateChange, signOut, getCurrentUser } from "./services/supabase";
+import { getSession, onAuthStateChange, signOut } from "./services/supabase";
 import { Loader2 } from "lucide-react";
+
 
 type Page = 
   | "login" 
@@ -24,9 +26,11 @@ type Page =
   | "ai-chat" 
   | "statistics"
   | "profile"
+  | "register"
   | "grades-and-practice"
   | "update-grades"
-  | "interview-practice";
+  | "interview-practice"
+  | "interview-evaluation";
 
 export default function App() {
   // 從 localStorage 恢復上次的頁面狀態
@@ -40,6 +44,7 @@ export default function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
+  const [profileComplete, setProfileComplete] = useState(false);
   const isInitialCheckRef = useRef(true);
   const currentPageRef = useRef<Page>(getInitialPage());
 
@@ -50,6 +55,33 @@ export default function App() {
       localStorage.setItem('currentPage', currentPage);
     }
   }, [currentPage, isLoggedIn]);
+
+  const isProfileComplete = (currentUser: any) => {
+    const profile = currentUser?.user_metadata?.profile || {};
+    return Boolean(
+      profile.name &&
+      profile.school &&
+      profile.grade &&
+      profile.region &&
+      profile.majorPreference &&
+      profile.interests &&
+      profile.desiredMajors &&
+      profile.careerGoals &&
+      profile.preferredCountries &&
+      profile.acceptFarFromHome &&
+      profile.budgetPerYear
+    );
+  };
+
+  const resolvePostLoginPage = (currentUser: any) => {
+    const complete = isProfileComplete(currentUser);
+    setProfileComplete(complete);
+    if (!complete) {
+      return "register" as Page;
+    }
+    const savedPage = localStorage.getItem('currentPage') as Page;
+    return savedPage && savedPage !== "login" ? savedPage : "home";
+  };
 
   // 檢查認證狀態
   useEffect(() => {
@@ -62,21 +94,17 @@ export default function App() {
       if (session?.user) {
         setUser(session.user);
         setIsLoggedIn(true);
-        // 只在初始檢查或從登出狀態轉為登入狀態時才改變頁面
-        // 避免在窗口重新獲得焦點時重置頁面
+        const nextPage = resolvePostLoginPage(session.user);
         if (isInitialCheckRef.current) {
-          const savedPage = localStorage.getItem('currentPage') as Page;
-          setCurrentPage(savedPage && savedPage !== "login" ? savedPage : "home");
+          setCurrentPage(nextPage);
           isInitialCheckRef.current = false;
         } else if (currentPageRef.current === "login") {
-          // 只有在當前是登入頁時才跳轉
-          const savedPage = localStorage.getItem('currentPage') as Page;
-          setCurrentPage(savedPage && savedPage !== "login" ? savedPage : "home");
+          setCurrentPage(nextPage);
         }
-        // 如果已經在其他頁面，保持當前頁面不變
       } else {
         setUser(null);
         setIsLoggedIn(false);
+        setProfileComplete(false);
         setCurrentPage("login");
         localStorage.removeItem('currentPage');
       }
@@ -94,20 +122,21 @@ export default function App() {
       if (session?.user) {
         setUser(session.user);
         setIsLoggedIn(true);
-        // 只在初始載入時恢復保存的頁面，否則保持當前頁面
+        const nextPage = resolvePostLoginPage(session.user);
         if (isInitialCheckRef.current) {
-          const savedPage = localStorage.getItem('currentPage') as Page;
-          setCurrentPage(savedPage && savedPage !== "login" ? savedPage : "home");
+          setCurrentPage(nextPage);
           isInitialCheckRef.current = false;
         }
       } else {
         setIsLoggedIn(false);
+        setProfileComplete(false);
         setCurrentPage("login");
         localStorage.removeItem('currentPage');
       }
     } catch (error) {
       console.error('Error checking session:', error);
       setIsLoggedIn(false);
+      setProfileComplete(false);
       setCurrentPage("login");
       localStorage.removeItem('currentPage');
     } finally {
@@ -125,6 +154,7 @@ export default function App() {
       await signOut();
       setUser(null);
       setIsLoggedIn(false);
+      setProfileComplete(false);
       setCurrentPage("login");
       localStorage.removeItem('currentPage');
     } catch (error) {
@@ -134,6 +164,11 @@ export default function App() {
 
   const handleNavigate = (page: string) => {
     const newPage = page as Page;
+    if (!profileComplete && newPage !== "register") {
+      setCurrentPage("register");
+      setIsMobileMenuOpen(false);
+      return;
+    }
     setCurrentPage(newPage);
     setIsMobileMenuOpen(false); // Close mobile menu after navigation
     // 保存頁面狀態（登入狀態下）
@@ -173,6 +208,7 @@ export default function App() {
         setIsMobileMenuOpen={setIsMobileMenuOpen}
         user={user}
       />
+
 
       {/* Main Content */}
       <div className="flex-1 md:ml-64 overflow-hidden">
@@ -251,7 +287,40 @@ export default function App() {
               exit={{ opacity: 0, x: -20 }}
               transition={{ duration: 0.3 }}
             >
-              <ProfilePage onNavigate={handleNavigate} onLogout={handleLogout} user={user} />
+              <ProfilePage
+                onNavigate={handleNavigate}
+                onLogout={handleLogout}
+                user={user}
+                onProfileUpdated={(updatedUser) => {
+                  setUser(updatedUser);
+                  const complete = isProfileComplete(updatedUser);
+                  setProfileComplete(complete);
+                }}
+              />
+            </motion.div>
+          )}
+          {currentPage === "register" && (
+            <motion.div
+              key="register"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.3 }}
+            >
+              <ProfilePage
+                onNavigate={handleNavigate}
+                onLogout={handleLogout}
+                user={user}
+                mode="register"
+                onProfileUpdated={(updatedUser) => {
+                  setUser(updatedUser);
+                  const complete = isProfileComplete(updatedUser);
+                  setProfileComplete(complete);
+                  if (complete && currentPage === "register") {
+                    setCurrentPage("home");
+                  }
+                }}
+              />
             </motion.div>
           )}
           {currentPage === "grades-and-practice" && (
@@ -285,6 +354,17 @@ export default function App() {
               transition={{ duration: 0.3 }}
             >
               <InterviewPracticePage onNavigate={handleNavigate} />
+            </motion.div>
+          )}
+          {currentPage === "interview-evaluation" && (
+            <motion.div
+              key="interview-evaluation"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.3 }}
+            >
+              <InterviewEvaluationPage onNavigate={handleNavigate} />
             </motion.div>
           )}
         </AnimatePresence>

@@ -1,7 +1,7 @@
 // Firebase service for university database
 
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, getDocs, Firestore } from 'firebase/firestore';
+import { getFirestore, collection, getDocs, Firestore, query, where } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyA6QVAAIBGpnt8QBAScj3gMQmnQijqX_vk",
@@ -305,4 +305,24 @@ export async function loadUniversities(): Promise<University[]> {
     console.error('❌ Error loading universities:', error);
     throw error;
   }
+}
+
+export async function searchUniversities(queryText: string): Promise<University[]> {
+  const trimmed = queryText.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  const universities = await loadUniversities();
+  const lowerQuery = trimmed.toLowerCase();
+
+  return universities.filter((uni) => {
+    const name = uni.name || "";
+    const nameEn = uni.nameEn || "";
+    const city = uni.city || "";
+    const department = uni.department || "";
+
+    return [name, nameEn, city, department]
+      .some((field) => field.toLowerCase().includes(lowerQuery));
+  });
 }

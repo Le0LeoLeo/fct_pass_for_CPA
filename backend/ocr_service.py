@@ -115,16 +115,16 @@ class DeepSeekParseRequest(BaseModel):
 
 def call_deepseek_parse(ocr_text: str) -> Dict[str, Any]:
     """呼叫 DeepSeek API 解析 OCR 文字，提取成績事件"""
-    prompt = f"""You are an assistant that extracts exam/assignment events from a school schedule.
-Return ONLY valid JSON. Do not wrap in markdown. Do not add any commentary.
+    prompt = f"""你是一位協助抽取學校行事曆中測驗/作業事件的助手。
+僅輸出有效的 JSON，不要包在 Markdown，也不要加入任何說明。
 
-Schema:
+格式：
 {{
   "events": [
     {{
       "id": "string",
-      "date": "YYYY-MM-DD or empty string",
-      "date_range": "YYYY-MM-DD..YYYY-MM-DD or empty string",
+      "date": "YYYY-MM-DD 或空字串",
+      "date_range": "YYYY-MM-DD..YYYY-MM-DD 或空字串",
       "week": "string",
       "subject": "string",
       "type": "string",
@@ -134,12 +134,12 @@ Schema:
   ]
 }}
 
-Rules:
-- Only include items that should have a score: 大測/測驗/考試/報告/作業/實驗考/選考.
-- If one cell contains multiple items split into multiple events.
-- If year is missing, leave date empty string.
+規則：
+- 只包含需要成績的項目：大測/測驗/考試/報告/作業/實驗考/選考。
+- 若同一格包含多個項目，請拆成多個事件。
+- 若缺少年份，date 留空字串。
 
-Schedule text:
+行事曆文字：
 {ocr_text}"""
 
     payload = {

@@ -9,6 +9,7 @@ import {
   calculateConfidenceScore,
   checkDimensionConvergence,
   getBaiduAccessToken,
+  callErnieChatAPI,
   type QuestionnaireState,
   type PersonalityWeights,
   type QuestionnaireQuestion,
@@ -76,8 +77,21 @@ export function QuestionnairePage({ onNavigate }: QuestionnairePageProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [bearerToken, setBearerToken] = useState<string | null>(null);
+  const [recommendedMajors, setRecommendedMajors] = useState<Array<{ name: string; match: number; reason: string }>>([]);
   const [error, setError] = useState<string | null>(null);
   const [showInfo, setShowInfo] = useState(false);
+  const [prefetchQuestions, setPrefetchQuestions] = useState<QuestionnaireQuestion[]>([]);
+  const [hasStarted, setHasStarted] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyItems, setHistoryItems] = useState<Array<{ completedAt: string; questionCount: number; mbti: string; holland: string }>>(() => {
+    const raw = localStorage.getItem('questionnaire_history');
+    if (!raw) return [];
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  });
 
   // 初始化 API 配置和访问令牌（参考AIChatPage的实现）
   useEffect(() => {
@@ -94,14 +108,14 @@ export function QuestionnairePage({ onNavigate }: QuestionnairePageProps) {
         // 优先使用 apiToken（Bearer token），如果没有则使用 apiKey + secretKey 获取 access token
         if (config.apiToken) {
           setBearerToken(config.apiToken);
-          console.log('✅ [Questionnaire] 文心 API 已就緒（使用 Bearer Token）');
+          console.log('✅ [Questionnaire] 文心5.0 API 已就緒（使用 Bearer Token）');
         } else if (config.apiKey && config.secretKey) {
           try {
             console.log('🔄 [Questionnaire] 正在通過 OAuth 獲取訪問令牌...');
             const token = await getBaiduAccessToken(config.apiKey, config.secretKey);
             console.log('✅ [Questionnaire] 成功獲取訪問令牌，長度:', token.length);
             setBearerToken(token);
-            console.log('✅ [Questionnaire] 文心 API 已就緒（使用 OAuth Token）');
+            console.log('✅ [Questionnaire] 文心5.0 API 已就緒（使用 OAuth Token）');
           } catch (error) {
             console.error('❌ [Questionnaire] 獲取訪問令牌失敗:', error);
             // 如果從 Supabase 獲取失敗，嘗試從 localStorage
@@ -111,12 +125,12 @@ export function QuestionnairePage({ onNavigate }: QuestionnairePageProps) {
             
             if (localApiToken) {
               setBearerToken(localApiToken);
-              console.log('✅ [Questionnaire] 文心 API 已就緒（從 localStorage 使用 Bearer Token）');
+              console.log('✅ [Questionnaire] 文心5.0 API 已就緒（從 localStorage 使用 Bearer Token）');
             } else if (localApiKey && localSecretKey) {
               try {
                 const token = await getBaiduAccessToken(localApiKey, localSecretKey);
                 setBearerToken(token);
-                console.log('✅ [Questionnaire] 文心 API 已就緒（從 localStorage 使用 OAuth Token）');
+                console.log('✅ [Questionnaire] 文心5.0 API 已就緒（從 localStorage 使用 OAuth Token）');
               } catch (err) {
                 console.error('❌ [Questionnaire] 從 localStorage 獲取令牌失敗:', err);
                 setError('無法獲取API Token，請檢查配置');
@@ -133,12 +147,12 @@ export function QuestionnairePage({ onNavigate }: QuestionnairePageProps) {
           
           if (localApiToken) {
             setBearerToken(localApiToken);
-            console.log('✅ [Questionnaire] 文心 API 已就緒（從 localStorage 使用 Bearer Token）');
+            console.log('✅ [Questionnaire] 文心5.0 API 已就緒（從 localStorage 使用 Bearer Token）');
           } else if (localApiKey && localSecretKey) {
             try {
               const token = await getBaiduAccessToken(localApiKey, localSecretKey);
               setBearerToken(token);
-              console.log('✅ [Questionnaire] 文心 API 已就緒（從 localStorage 使用 OAuth Token）');
+              console.log('✅ [Questionnaire] 文心5.0 API 已就緒（從 localStorage 使用 OAuth Token）');
             } catch (err) {
               console.error('❌ [Questionnaire] 從 localStorage 獲取令牌失敗:', err);
               setError('未配置百度API Key，無法生成問題');
@@ -158,21 +172,33 @@ export function QuestionnairePage({ onNavigate }: QuestionnairePageProps) {
 
   // 加载或生成第一个问题
   useEffect(() => {
-    if (!currentQuestion && !isLoading && !showResults && bearerToken) {
+    if (!currentQuestion && !isLoading && !showResults && bearerToken && hasStarted) {
       loadNextQuestion();
     }
-  }, [bearerToken]);
+  }, [bearerToken, hasStarted]);
 
   // 保存状态到localStorage
   useEffect(() => {
     if (state.questionNumber > 0) {
       localStorage.setItem('adaptive_questionnaire_state', JSON.stringify(state));
+      localStorage.setItem('questionnaire_answers', JSON.stringify(state.answers));
     }
   }, [state]);
 
-  const loadNextQuestion = async () => {
+  const loadNextQuestion = async (overrideState?: QuestionnaireState) => {
     if (!bearerToken) {
       setError('未配置API Token，無法生成問題');
+      setIsLoading(false);
+      return;
+    }
+
+    const baseState = overrideState ?? state;
+
+    if (prefetchQuestions.length > 0) {
+      const [first, ...rest] = prefetchQuestions;
+      setCurrentQuestion(first);
+      setSelectedOption(null);
+      setPrefetchQuestions(rest);
       setIsLoading(false);
       return;
     }
@@ -185,14 +211,14 @@ export function QuestionnairePage({ onNavigate }: QuestionnairePageProps) {
     setError(null);
     
     try {
-      const lastAnswer = state.answers.length > 0 
-        ? state.answers[state.answers.length - 1]
+      const lastAnswer = baseState.answers.length > 0 
+        ? baseState.answers[baseState.answers.length - 1]
         : undefined;
       
       // 使用Promise.race确保快速响应
       // 檢查問題是否重複（簡單檢查）
       const checkDuplicate = (newQuestion: QuestionnaireQuestion): boolean => {
-        return state.answers.some(
+        return baseState.answers.some(
           a => a.question.trim() === newQuestion.question.trim() ||
                a.question.includes(newQuestion.question.substring(0, 10)) ||
                newQuestion.question.includes(a.question.substring(0, 10))
@@ -206,7 +232,7 @@ export function QuestionnairePage({ onNavigate }: QuestionnairePageProps) {
       while (!question && attempts < maxAttempts) {
         const generated = await Promise.race([
           generateQuestionnaireQuestion(
-            state,
+            baseState,
             lastAnswer ? {
               question: lastAnswer.question,
               selectedOption: lastAnswer.selectedOption,
@@ -242,7 +268,7 @@ export function QuestionnairePage({ onNavigate }: QuestionnairePageProps) {
         // 如果3次都重複，使用最後一次生成的問題
         console.warn('⚠️ [Questionnaire] 多次生成仍重複，使用最後一次結果');
         const lastGenerated = await generateQuestionnaireQuestion(
-          state,
+          baseState,
           lastAnswer ? {
             question: lastAnswer.question,
             selectedOption: lastAnswer.selectedOption,
@@ -259,6 +285,11 @@ export function QuestionnairePage({ onNavigate }: QuestionnairePageProps) {
       
       setCurrentQuestion(question);
       setSelectedOption(null);
+      setPrefetchQuestions([]);
+
+      if (baseState.questionNumber < 12) {
+        void prefetchNextQuestions(baseState);
+      }
     } catch (err) {
       console.error('Failed to generate question:', err);
       setError(err instanceof Error ? err.message : '生成問題失敗，請重試');
@@ -324,16 +355,137 @@ export function QuestionnairePage({ onNavigate }: QuestionnairePageProps) {
     
     setState(newState);
     
-    // 立即开始加载下一题（不延迟）
-    loadNextQuestion();
+    // 先預抓下一題，減少等待時間
+    prefetchNextQuestions(newState);
+
+    // 立即开始加载下一题（使用最新狀態，避免等待 state 更新）
+    loadNextQuestion(newState);
   };
 
-  const handleQuestionnaireComplete = () => {
-    // 标记问卷完成
-    localStorage.setItem('questionnaire_completed_at', new Date().toISOString());
-    localStorage.setItem('adaptive_questionnaire_final_state', JSON.stringify(state));
-    setShowResults(true);
+  const prefetchNextQuestions = async (baseState: QuestionnaireState) => {
+    if (!bearerToken) return;
+
+    try {
+      const lastAnswer = baseState.answers.length > 0
+        ? baseState.answers[baseState.answers.length - 1]
+        : undefined;
+
+      const generatedFirst = await generateQuestionnaireQuestion(
+        baseState,
+        lastAnswer
+          ? { question: lastAnswer.question, selectedOption: lastAnswer.selectedOption }
+          : undefined,
+        bearerToken
+      );
+
+      if (!generatedFirst) {
+        return;
+      }
+
+      const firstQuestion = generatedFirst;
+
+      const simulatedState: QuestionnaireState = {
+        ...baseState,
+        questionNumber: baseState.questionNumber + 1,
+        answers: [
+          ...baseState.answers,
+          {
+            question: firstQuestion.question,
+            selectedOption: 0,
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      };
+
+      const generatedSecond = await generateQuestionnaireQuestion(
+        simulatedState,
+        {
+          question: firstQuestion.question,
+          selectedOption: 0,
+        },
+        bearerToken
+      );
+
+      if (generatedSecond) {
+        const normalizedSecond = generatedSecond;
+        const isDuplicate = firstQuestion.question.trim() === normalizedSecond.question.trim() ||
+          firstQuestion.question.includes(normalizedSecond.question.substring(0, 10)) ||
+          normalizedSecond.question.includes(firstQuestion.question.substring(0, 10));
+
+        if (!isDuplicate) {
+          setPrefetchQuestions([firstQuestion, normalizedSecond]);
+          return;
+        }
+      }
+
+      setPrefetchQuestions([firstQuestion]);
+    } catch (err) {
+      console.warn('Prefetch question failed:', err);
+    }
   };
+
+  const handleQuestionnaireComplete = (finalState?: QuestionnaireState) => {
+    const completedState = finalState ?? state;
+    const completedAt = new Date().toISOString();
+    // 标记问卷完成
+    localStorage.setItem('questionnaire_completed_at', completedAt);
+    localStorage.setItem('adaptive_questionnaire_final_state', JSON.stringify(completedState));
+    localStorage.setItem('questionnaire_answers', JSON.stringify(completedState.answers));
+
+    const mbtiType = getMBTIResult(completedState.currentWeights);
+    const hollandCode = getHollandResult(completedState.currentWeights);
+
+    const nextHistory = [
+      {
+        completedAt,
+        questionCount: completedState.questionNumber,
+        mbti: mbtiType,
+        holland: hollandCode,
+      },
+      ...historyItems,
+    ].slice(0, 10);
+
+    localStorage.setItem('questionnaire_history', JSON.stringify(nextHistory));
+    setHistoryItems(nextHistory);
+
+    setState(completedState);
+    setShowResults(true);
+    setHasStarted(true);
+  };
+
+  const handleResetQuestionnaire = () => {
+    localStorage.removeItem('adaptive_questionnaire_state');
+    localStorage.removeItem('adaptive_questionnaire_final_state');
+    localStorage.removeItem('questionnaire_completed_at');
+    localStorage.removeItem('questionnaire_answers');
+    setState(initialState);
+    setCurrentQuestion(null);
+    setSelectedOption(null);
+    setIsLoading(false);
+    setShowResults(false);
+    setPrefetchQuestions([]);
+    setError(null);
+    setHasStarted(false);
+  };
+
+  const handleEndQuestionnaire = () => {
+    const completedState: QuestionnaireState = {
+      ...state,
+      questionNumber: state.questionNumber + 1,
+    };
+    handleQuestionnaireComplete(completedState);
+  };
+
+  useEffect(() => {
+    if (!showResults || !bearerToken) {
+      return;
+    }
+
+    const mbtiType = getMBTIResult(state.currentWeights);
+    const hollandCode = getHollandResult(state.currentWeights);
+
+    generateRecommendedMajors(mbtiType, hollandCode);
+  }, [showResults, bearerToken]);
 
   const getMBTIResult = (weights: PersonalityWeights): string => {
     const e = weights.mbti.E >= weights.mbti.I ? 'E' : 'I';
@@ -388,6 +540,33 @@ export function QuestionnairePage({ onNavigate }: QuestionnairePageProps) {
     
     const topTypes = code.split('').slice(0, 3);
     return topTypes.map(t => descriptions[t] || '').join(' ');
+  };
+
+  const generateRecommendedMajors = async (mbtiType: string, hollandCode: string) => {
+    if (!bearerToken) {
+      return;
+    }
+
+    try {
+      const prompt = `你是一位升學顧問，請根據以下性向結果推薦科系：\n- MBTI：${mbtiType}\n- Holland：${hollandCode}\n\n請輸出 3 個推薦科系，每個包含：\n1. 科系名稱\n2. 匹配度（70-99 的整數）\n3. 一句理由（繁體中文，20字內）\n\n請用 JSON 陣列輸出，格式如下：\n[\n  {"name":"科系","match":95,"reason":"理由"}\n]`;
+
+      const response = await callErnieChatAPI(
+        prompt,
+        [],
+        bearerToken,
+        'ernie-4.5-turbo-vl',
+        '你是升學顧問，只輸出 JSON，不要額外說明。'
+      );
+
+      const jsonMatch = response.match(/\[[\s\S]*\]/);
+      const jsonText = jsonMatch ? jsonMatch[0] : response;
+      const parsed = JSON.parse(jsonText);
+      if (Array.isArray(parsed)) {
+        setRecommendedMajors(parsed.slice(0, 3));
+      }
+    } catch (error) {
+      console.error('生成推薦科系失敗:', error);
+    }
   };
 
   if (showResults) {
@@ -503,41 +682,39 @@ export function QuestionnairePage({ onNavigate }: QuestionnairePageProps) {
               <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6">
                 <h3 className="text-[20px] text-gray-900 mb-4">推薦科系</h3>
                 <div className="space-y-3">
-                  <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-2xl cursor-pointer hover:bg-blue-100 transition-colors">
-                    <div className="w-12 h-12 bg-blue-500 rounded-xl flex items-center justify-center text-white text-[18px]">
-                      1
+                  {recommendedMajors.length > 0 ? (
+                    recommendedMajors.map((major, index) => (
+                      <div
+                        key={`${major.name}-${index}`}
+                        className="flex items-center gap-3 p-4 bg-blue-50 rounded-2xl cursor-pointer hover:bg-blue-100 transition-colors"
+                      >
+                        <div className="w-12 h-12 bg-blue-500 rounded-xl flex items-center justify-center text-white text-[18px]">
+                          {index + 1}
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="text-[16px] text-gray-900">{major.name}</h4>
+                          <p className="text-[13px] text-gray-600">匹配度 {major.match}%</p>
+                          <p className="text-[12px] text-gray-500 mt-1">{major.reason}</p>
+                        </div>
+                        <ChevronRight className="w-5 h-5 text-gray-400" />
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center text-[13px] text-gray-500 py-6">
+                      正在生成推薦科系...
                     </div>
-                    <div className="flex-1">
-                      <h4 className="text-[16px] text-gray-900">資訊工程學系</h4>
-                      <p className="text-[13px] text-gray-600">匹配度 95%</p>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-gray-400" />
-                  </div>
-                  <div className="flex items-center gap-3 p-4 bg-purple-50 rounded-2xl cursor-pointer hover:bg-purple-100 transition-colors">
-                    <div className="w-12 h-12 bg-purple-500 rounded-xl flex items-center justify-center text-white text-[18px]">
-                      2
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="text-[16px] text-gray-900">電機工程學系</h4>
-                      <p className="text-[13px] text-gray-600">匹配度 88%</p>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-gray-400" />
-                  </div>
-                  <div className="flex items-center gap-3 p-4 bg-cyan-50 rounded-2xl cursor-pointer hover:bg-cyan-100 transition-colors">
-                    <div className="w-12 h-12 bg-cyan-500 rounded-xl flex items-center justify-center text-white text-[18px]">
-                      3
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="text-[16px] text-gray-900">數學系</h4>
-                      <p className="text-[13px] text-gray-600">匹配度 82%</p>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-gray-400" />
-                  </div>
+                  )}
                 </div>
 
                 <Button
+                  onClick={handleResetQuestionnaire}
+                  className="w-full h-12 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl mt-6"
+                >
+                  重設問卷
+                </Button>
+                <Button
                   onClick={() => onNavigate("home")}
-                  className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white rounded-xl mt-6"
+                  className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white rounded-xl mt-3"
                 >
                   返回主頁
                 </Button>
@@ -566,6 +743,78 @@ export function QuestionnairePage({ onNavigate }: QuestionnairePageProps) {
         <div className="text-center max-w-md">
           <p className="text-red-600 mb-4">{error}</p>
           <Button onClick={() => window.location.reload()}>重新載入</Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasStarted) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-8">
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-10">
+            <div className="mb-8">
+              <h1 className="text-[32px] text-gray-900 mb-2">智能問卷</h1>
+              <p className="text-[16px] text-gray-600">AI 自適應性向分析</p>
+            </div>
+            <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-2xl p-6 mb-8">
+              <h2 className="text-[20px] text-gray-900 mb-3">開始前須知</h2>
+              <ul className="space-y-2 text-[15px] text-gray-600">
+                <li>• 問卷約需 5-10 分鐘完成</li>
+                <li>• 請依真實想法作答以提升準確度</li>
+                <li>• 完成後會提供性格與職業興趣分析</li>
+              </ul>
+            </div>
+            <div className="mb-8">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-[18px] text-gray-900">歷史紀錄</h2>
+                <button
+                  onClick={() => setShowHistory(!showHistory)}
+                  className="text-sm text-blue-600 hover:text-blue-700"
+                >
+                  {showHistory ? '收起' : '查看'}
+                </button>
+              </div>
+              {showHistory && (
+                <div className="space-y-3">
+                  {historyItems.length > 0 ? (
+                    historyItems.map((item, index) => (
+                      <div
+                        key={`${item.completedAt}-${index}`}
+                        className="flex items-center justify-between bg-gray-50 rounded-2xl px-4 py-3"
+                      >
+                        <div>
+                          <p className="text-[14px] text-gray-900">
+                            {new Date(item.completedAt).toLocaleString('zh-TW', {
+                              year: 'numeric',
+                              month: '2-digit',
+                              day: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </p>
+                          <p className="text-[12px] text-gray-500">
+                            {item.questionCount} 題 · MBTI {item.mbti} · Holland {item.holland}
+                          </p>
+                        </div>
+                        <span className="text-[12px] text-gray-400">#{historyItems.length - index}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="bg-gray-50 rounded-2xl px-4 py-6 text-center text-[13px] text-gray-500">
+                      尚無歷史紀錄
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <Button
+              onClick={() => setHasStarted(true)}
+              className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white rounded-xl"
+            >
+              開始問卷
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -609,6 +858,18 @@ export function QuestionnairePage({ onNavigate }: QuestionnairePageProps) {
               <span className="text-[15px] text-gray-500">
                 第 {state.questionNumber + 1} 題
               </span>
+              <button
+                onClick={handleResetQuestionnaire}
+                className="px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                重設
+              </button>
+              <button
+                onClick={handleEndQuestionnaire}
+                className="px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+              >
+                結束
+              </button>
             </div>
           </div>
           

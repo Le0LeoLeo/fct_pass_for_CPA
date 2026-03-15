@@ -649,10 +649,23 @@ export function StatisticsPage({ onNavigate }: StatisticsPageProps) {
                         <p className="text-[15px] text-purple-100 mb-2">推薦科系</p>
                         <p className="text-[20px]">{aiAnalysis.recommendedMajors}</p>
                       </div>
+                      {aiAnalysis.improvements.length > 0 && (
+                        <div className="bg-white/15 backdrop-blur-sm rounded-2xl p-5 border border-white/25">
+                          <p className="text-[15px] text-purple-100 mb-3">AI 改進建議</p>
+                          <ul className="space-y-2 text-[14px] text-white">
+                            {aiAnalysis.improvements.slice(0, 3).map((item, idx) => (
+                              <li key={idx} className="flex items-start gap-2">
+                                <span className="text-white/80">•</span>
+                                <span>{item}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="text-center py-8">
-                      <p className="text-[16px] text-purple-100">請配置文心 API Token 以啟用 AI 分析</p>
+                      <p className="text-[16px] text-purple-100">請配置文心5.0 API Token 以啟用 AI 分析</p>
                     </div>
                   )}
                 </motion.div>

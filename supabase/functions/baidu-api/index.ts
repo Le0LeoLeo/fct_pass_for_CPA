@@ -11,6 +11,11 @@ interface BaiduApiRequest {
   accessToken?: string;
   // For speech_to_text
   audioData?: string; // base64 encoded audio
+  format?: string;
+  rate?: number;
+  channel?: number;
+  cuid?: string;
+  devPid?: string;
   // For text_to_speech
   text?: string;
   speed?: number;
@@ -159,7 +164,16 @@ serve(async (req) => {
       }
 
       case 'speech_to_text': {
-        const { accessToken, audioData } = requestBody;
+        const {
+          accessToken,
+          audioData,
+          format = 'pcm',
+          rate = 16000,
+          channel = 1,
+          cuid = 'web_interview_client',
+          devPid = '1537',
+        } = requestBody;
+
         if (!accessToken || !audioData) {
           return new Response(
             JSON.stringify({ error: "accessToken and audioData are required" }),
@@ -173,33 +187,34 @@ serve(async (req) => {
           );
         }
 
-        // Convert base64 to bytes
-        // Remove data URL prefix if present
         const base64Data = audioData.includes(',') ? audioData.split(',')[1] : audioData;
-        const binaryString = atob(base64Data);
-        const audioBytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          audioBytes[i] = binaryString.charCodeAt(i);
-        }
-        
-        const params = new URLSearchParams({
-          dev_pid: '1537', // 1537=普通话(纯中文识别)
-          cuid: 'web_interview_client',
-        });
+
+        const payload = {
+          format,
+          rate,
+          channel,
+          cuid,
+          dev_pid: devPid,
+          speech: base64Data,
+          len: Math.floor((base64Data.length * 3) / 4),
+          token: accessToken,
+        };
 
         const response = await fetch(
-          `https://vop.baidu.com/server_api?${params.toString()}&token=${accessToken}`,
+          'https://vop.baidu.com/server_api',
           {
             method: 'POST',
             headers: {
-              'Content-Type': 'audio/pcm;rate=16000',
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
             },
-            body: audioBytes,
+            body: JSON.stringify(payload),
           }
         );
 
         if (!response.ok) {
-          throw new Error(`Speech recognition failed: ${response.statusText}`);
+          const errorText = await response.text();
+          throw new Error(`Speech recognition failed: ${response.status} ${response.statusText} - ${errorText}`);
         }
 
         const result = await response.json();
@@ -292,7 +307,7 @@ serve(async (req) => {
       }
 
       case 'ernie_chat': {
-        const { accessToken, userInput, conversationHistory = [], model = 'ernie-4.5-turbo-128k' } = requestBody;
+        const { accessToken, userInput, conversationHistory = [], model = 'ernie-5.0' } = requestBody;
         if (!accessToken || !userInput) {
           return new Response(
             JSON.stringify({ error: "accessToken and userInput are required" }),
@@ -331,17 +346,8 @@ serve(async (req) => {
         ];
 
         // 根据参考项目，使用旧版API端点（支持system role）
-        // 对于文心4.5T，可以尝试使用 ernie-4.5-8k 或 ernie-4.5-128k
-        // 如果模型名称包含4.5，尝试使用4.5的端点
-        let modelEndpoint = model;
-        if (model.includes('4.5') && !model.includes('ernie-4.5')) {
-          // 如果传入的是 ernie-4.5-turbo-128k，转换为 ernie-4.5-128k
-          if (model.includes('128k')) {
-            modelEndpoint = 'ernie-4.5-128k';
-          } else if (model.includes('turbo')) {
-            modelEndpoint = 'ernie-4.5-8k';
-          }
-        }
+        // 文心 5.0：模型名称直接使用 ernie-5.0
+        const modelEndpoint = model;
         
         const apiUrl = `https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/${modelEndpoint}?access_token=${accessToken}`;
         const requestBody = {

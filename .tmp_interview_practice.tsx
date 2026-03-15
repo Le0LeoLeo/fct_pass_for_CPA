@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Mic, MicOff, Trash2, Volume2, ArrowLeft, Sparkles, Zap, Clock, MessageSquare, Save, CheckCircle, ChevronRight, ChevronLeft, X, Plus, Settings, Award, Loader2, Info, ChevronDown, ChevronUp } from "lucide-react";
 import { getBaiduAccessToken, speechToText, textToSpeech, callErnieChatAPI } from "../services/api";
@@ -12,32 +12,6 @@ interface InterviewPracticePageProps {
 export function InterviewPracticePage({ onNavigate }: InterviewPracticePageProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [recognitionMode, setRecognitionMode] = useState("mandarin");
-  const recognitionModeConfig: Record<
-    string,
-    { devPid: string; label: string; model: string; punctuation: string; note: string }
-  > = {
-    mandarin: {
-      devPid: "1537",
-      label: "普通話（純中文）",
-      model: "語音近場識別模型",
-      punctuation: "有標點",
-      note: "支持自定義詞庫",
-    },
-    english: {
-      devPid: "1737",
-      label: "英語",
-      model: "英語模型",
-      punctuation: "無標點",
-      note: "不支持自定義詞庫",
-    },
-    cantonese: {
-      devPid: "1637",
-      label: "粵語",
-      model: "粵語模型",
-      punctuation: "有標點",
-      note: "不支持自定義詞庫",
-    },
-  };
   const [status, setStatus] = useState("就緒");
   const [conversation, setConversation] = useState("");
   const [speed, setSpeed] = useState(5);
@@ -77,75 +51,9 @@ export function InterviewPracticePage({ onNavigate }: InterviewPracticePageProps
     strengths: string[];
     improvements: string[];
   } | null>(null);
-  const evaluationStorageKey = "interview_evaluation_view";
+  const [showEvaluationDialog, setShowEvaluationDialog] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
-  const maxAnswerChars = 200;
-  const interviewStages = [
-    { id: 'intro', label: '自我介紹', goal: '請面試者精簡介紹背景與亮點' },
-    { id: 'motivation', label: '就讀動機', goal: '釐清科系/學校選擇動機與理解' },
-    { id: 'professional', label: '專業能力', goal: '追問專業知識、作品或課程基礎' },
-    { id: 'scenario', label: '情境題', goal: '考驗解決問題與邏輯思維' },
-    { id: 'pressure', label: '壓力測試', goal: '觀察抗壓與臨場反應' },
-  ];
-  const interviewQuestionBank: Record<string, string[]> = {
-    intro: [
-      '請用 30 秒介紹你自己，重點放在學習與成果。',
-      '你的三個優勢是什麼？請各舉一個例子。',
-      '說明一個你最有成就感的經驗。',
-    ],
-    motivation: [
-      '為什麼選擇這個科系？請給出具體原因。',
-      '你了解本系哪些課程或特色？',
-      '如果沒有錄取這個科系，你的備案是什麼？',
-    ],
-    professional: [
-      '請說明你最熟悉的專業能力或作品。',
-      '你在專題/作品中扮演什麼角色？成果如何？',
-      '請舉例說明你如何解決一個技術或學術問題。',
-    ],
-    scenario: [
-      '如果小組成員無法配合，你會怎麼處理？',
-      '時間不足但任務緊急時，你會如何規劃？',
-      '遇到與你意見相反的同學，你會怎麼溝通？',
-    ],
-    pressure: [
-      '請說明你最大的缺點，以及如何改善。',
-      '如果面試官質疑你的能力，你會怎麼回應？',
-      '你認為自己和其他人相比最大的不足是什麼？',
-    ],
-  };
-  const [questionCount, setQuestionCount] = useState(0);
-  const [currentStageIndex, setCurrentStageIndex] = useState(0);
-  const [selectedQuestionSeed, setSelectedQuestionSeed] = useState<string | null>(null);
-  const [pendingSeed, setPendingSeed] = useState<string | null>(null);
-  const [answerAudioUrls, setAnswerAudioUrls] = useState<string[]>([]);
-  const [qaSummaries, setQaSummaries] = useState<string[]>([]);
-  const buildSummary = (answer: string) => {
-    const cleaned = answer.replace(/\s+/g, " ").trim();
-    if (!cleaned) return "";
-    const segments = cleaned.split(/。|！|？|\.|!/).filter(Boolean);
-    const candidate = segments.slice(0, 2).join("。") || cleaned;
-    return candidate.length > 80 ? `${candidate.slice(0, 80)}…` : candidate;
-  };
-  const qaPairs = useMemo(() => {
-    const pairs: Array<{ question: string; answer: string; summary: string }> = [];
-    let currentQuestion = "";
-    let answerIndex = 0;
-    conversationHistory.forEach((msg) => {
-      if (msg.role === "assistant") {
-        currentQuestion = msg.content;
-      } else if (msg.role === "user") {
-        pairs.push({
-          question: currentQuestion || "（未記錄題目）",
-          answer: msg.content,
-          summary: qaSummaries[answerIndex] || buildSummary(msg.content),
-        });
-        answerIndex += 1;
-      }
-    });
-    return pairs;
-  }, [conversationHistory, qaSummaries]);
-
+  
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioStreamRef = useRef<MediaStream | null>(null);
@@ -189,7 +97,7 @@ export function InterviewPracticePage({ onNavigate }: InterviewPracticePageProps
           setApiConfigLoaded(true);
         } else {
           console.warn('API 配置未找到，請檢查 Supabase 數據庫');
-          // 如果 Supabase 没有配置，尝试从 localStorage 获取（向后兼容）
+          // 如果 Supabase 沒有配置，嘗試從 localStorage 獲取（向後兼容）
           const localApiKey = localStorage.getItem('baidu_api_key') || '';
           const localSecretKey = localStorage.getItem('baidu_secret_key') || '';
           const localApiToken = localStorage.getItem('baidu_api_token') || '';
@@ -204,7 +112,7 @@ export function InterviewPracticePage({ onNavigate }: InterviewPracticePageProps
         }
       } catch (error) {
         console.error('Failed to load API config from Supabase:', error);
-        // 如果 Supabase 失败，尝试从 localStorage 获取（向后兼容）
+        // 如果 Supabase 失敗，嘗試從 localStorage 獲取（向後兼容）
         const localApiKey = localStorage.getItem('baidu_api_key') || '';
         const localSecretKey = localStorage.getItem('baidu_secret_key') || '';
         const localApiToken = localStorage.getItem('baidu_api_token') || '';
@@ -378,29 +286,12 @@ export function InterviewPracticePage({ onNavigate }: InterviewPracticePageProps
 
       // 语音识别
       const asrStartTime = Date.now();
-      const recognizedText = await speechToText(pcmBlob, accessToken, {
-        devPid: recognitionModeConfig[recognitionMode]?.devPid || "1537",
-      });
+      const recognizedText = await speechToText(pcmBlob, accessToken);
       const asrLatency = Date.now() - asrStartTime;
 
       if (recognizedText && recognizedText.trim().length > 0) {
         setMetrics(prev => ({ ...prev, asr: `${asrLatency}ms` }));
         addMessage('user', recognizedText);
-        setAnswerAudioUrls(prev => [...prev, URL.createObjectURL(audioBlob)]);
-        setQaSummaries(prev => [...prev, buildSummary(recognizedText)]);
-
-        const isFirstAssistantTurn = conversationHistory.length === 0;
-        const stageIndex = Math.min(currentStageIndex, interviewStages.length - 1);
-        const currentStage = interviewStages[stageIndex];
-        const needsConciseReminder = recognizedText.trim().length > maxAnswerChars;
-
-        const stageQuestions = interviewQuestionBank[currentStage.id] || [];
-        const randomSeedQuestion = stageQuestions.length > 0
-          ? stageQuestions[Math.floor(Math.random() * stageQuestions.length)]
-          : null;
-        if (!selectedQuestionSeed && randomSeedQuestion) {
-          setPendingSeed(randomSeedQuestion);
-        }
 
         // 调用LLM - 使用千帆API（与AI助手相同的方式）
         console.log('🚀 开始调用 LLM API...');
@@ -446,73 +337,50 @@ export function InterviewPracticePage({ onNavigate }: InterviewPracticePageProps
             userInput: recognizedText,
             historyLength: newHistory.length,
             bearerTokenLength: currentBearerToken.length,
-            model: 'ernie-5.0'
+            model: 'ernie-4.5-turbo-128k'
           });
           
           // 为面试场景定制 system prompt - 超严格的面试官
-          const conciseReminder = needsConciseReminder
-            ? '回答過長，請先提醒「請精簡重點」，再提出下一個問題。'
-            : '';
-          const interviewSystemPrompt = `你是一位**極其嚴格且專業**的大學面試官，以高標準、嚴要求著稱。你的角色是**面試官**，不是顧問或建議者。
+          const interviewSystemPrompt = `你是一位**极其严格和专业**的大学面试官，以高标准、严要求著称。你的角色是**面试官**，不是顾问或建议者。
 
-當前面試階段：${currentStage.label}
-階段目標：${currentStage.goal}
-當前階段問題編號（從1開始）：${questionCount + 1}
+你的面试风格：
+1. **严格专业**：以最高标准要求面试者，不轻易给予肯定
+2. **深度追问**：对每个回答都要深入挖掘，找出不足和漏洞
+3. **挑战性提问**：提出有难度的问题，测试面试者的真实水平
+4. **质疑态度**：对模糊、不具体的回答要质疑和追问
+5. **压力测试**：适当施加压力，观察面试者的应变能力
 
-面試階段要求：
-- 每個階段最多追問 2~3 題後，進入下一階段
-- 必須圍繞當前階段目標發問
-- 若面試者回答太空泛，請追問細節
-- 階段切換時，用一句話過渡後再提問
+你的任务是：
+1. **严格提问**：根据学生的回答，提出尖锐、有挑战性的后续问题
+2. **模拟真实严格面试**：包括自我介绍、学习动机、专业问题、情境题、压力测试等
+3. **简洁但严厉**：每次只问一个问题，回复控制在30-60字之间，适合语音播放，语气要专业但严格
+4. **深度追问**：对不完整、模糊的回答要追问"能具体说明吗？"、"还有吗？"、"为什么？"
+5. **挑战性**：提出有难度的问题，如"如果给你一个项目，你会如何规划？"、"你认为自己最大的不足是什么？"
 
-回答長度規則：
-- 如果面試者回答過長，請先提醒「請精簡重點」再提問
-- 回答過長判定：${maxAnswerChars} 字以上
-${conciseReminder ? `- 系統提示：${conciseReminder}` : ''}
+重要规则：
+- ❌ **不要**给出面试建议或准备方法
+- ❌ **不要**列出多个问题或提供示例答案
+- ❌ **不要**轻易表扬或肯定，要保持严格标准
+- ✅ **要**作为严格的面试官直接提问
+- ✅ **要**对回答进行深度追问和质疑
+- ✅ **要**提出有挑战性的问题
+- ✅ **要**保持专业但严格的态度
 
-題庫導向規則：
-- 優先使用以下題庫問題作為提問核心
-- 若題庫問題已使用或不適合，可自然轉為追問
-- 當前題庫建議問題：${selectedQuestionSeed ? selectedQuestionSeed : (pendingSeed || '請依階段目標自行發問')}
-
-你的面試風格：
-1. **嚴格專業**：以最高標準要求面試者，不輕易給予肯定
-2. **深度追問**：對每個回答都要深入挖掘，找出不足和漏洞
-3. **挑戰性提問**：提出有難度的問題，測試面試者的真實水平
-4. **質疑態度**：對模糊、不具體的回答要質疑和追問
-5. **壓力測試**：適度施加壓力，觀察面試者的應變能力
-
-你的任務是：
-1. **嚴格提問**：根據學生的回答，提出尖銳、有挑戰性的後續問題
-2. **模擬真實嚴格面試**：包括自我介紹、學習動機、專業問題、情境題、壓力測試等
-3. **簡潔但嚴厲**：每次只問一個問題，回覆控制在30-60字之間，適合語音播放，語氣要專業但嚴格
-4. **深度追問**：對不完整、模糊的回答要追問「能具體說明嗎？」、「還有嗎？」、「為什麼？」
-5. **挑戰性**：提出有難度的問題，如「如果給你一個專案，你會如何規劃？」、「你認為自己最大的不足是什麼？」
-
-重要規則：
-- ❌ **不要**給出面試建議或準備方法
-- ❌ **不要**列出多個問題或提供示例答案
-- ❌ **不要**輕易表揚或肯定，要保持嚴格標準
-- ✅ **要**作為嚴格的面試官直接提問
-- ✅ **要**對回答進行深度追問和質疑
-- ✅ **要**提出有挑戰性的問題
-- ✅ **要**保持專業但嚴格的態度
-
-提問風格示例：
-- ✅ 嚴格：「請簡單介紹一下你自己，重點說明你的學術成就和優勢。」
-- ✅ 挑戰：「為什麼選擇這個科系？你認為自己有什麼優勢能勝任？」
-- ✅ 追問：「能詳細說說你在專案中的具體貢獻嗎？你負責了哪些部分？」
-- ✅ 質疑：「這個回答不夠具體，能舉一個具體的例子嗎？」
-- ✅ 壓力：「如果這個專案失敗了，你會如何處理？」
-- ❌ 錯誤：「在面試中，面試官通常會問...建議你這樣回答...」
-- ❌ 錯誤：「以下是一些常見問題及回答建議...」`;
+提问风格示例：
+- ✅ 严格："请简单介绍一下你自己，重点说明你的学术成就和优势。"
+- ✅ 挑战："为什么选择这个科系？你认为自己有什么优势能胜任？"
+- ✅ 追问："能详细说说你在项目中的具体贡献吗？你负责了哪些部分？"
+- ✅ 质疑："这个回答不够具体，能举一个具体的例子吗？"
+- ✅ 压力："如果这个项目失败了，你会如何处理？"
+- ❌ 错误："在面试中，面试官通常会问...建议你这样回答..."
+- ❌ 错误："以下是一些常见问题及回答建议..."`;
 
           // 使用 callErnieChatAPI，传入定制的面试官 system prompt
           response = await callErnieChatAPI(
             recognizedText,
             newHistory,
             currentBearerToken,
-            'ernie-5.0',
+            'ernie-4.5-turbo-128k',
             interviewSystemPrompt // 传入自定义的面试官 prompt
           );
           const llmLatency = Date.now() - llmStartTime;
@@ -543,21 +411,6 @@ ${conciseReminder ? `- 系統提示：${conciseReminder}` : ''}
           console.log('✅ LLM 返回有效响应，添加到对话');
           addMessage('assistant', response);
           setConversationHistory([...newHistory, { role: 'assistant', content: response }]);
-
-          if (!isFirstAssistantTurn) {
-            setQuestionCount(prev => {
-              const nextCount = prev + 1;
-              if (nextCount >= 3) {
-                setCurrentStageIndex(prevStage => Math.min(prevStage + 1, interviewStages.length - 1));
-                return 0;
-              }
-              return nextCount;
-            });
-            if (pendingSeed && !selectedQuestionSeed) {
-              setSelectedQuestionSeed(pendingSeed);
-              setPendingSeed(null);
-            }
-          }
           
           // 暂停录音，播放TTS
           await pauseRecordingForTTS();
@@ -703,9 +556,6 @@ ${conciseReminder ? `- 系統提示：${conciseReminder}` : ''}
   const handleClearConversation = () => {
     setConversation("");
     setConversationHistory([]);
-    answerAudioUrls.forEach((url) => URL.revokeObjectURL(url));
-    setAnswerAudioUrls([]);
-    setQaSummaries([]);
     setMetrics({
       asr: "-",
       llm: "-",
@@ -713,10 +563,6 @@ ${conciseReminder ? `- 系統提示：${conciseReminder}` : ''}
       endToEnd: "-"
     });
     setCurrentRecordId(null);
-    setQuestionCount(0);
-    setCurrentStageIndex(0);
-    setSelectedQuestionSeed(null);
-    setPendingSeed(null);
   };
 
   // 加载面试记录
@@ -752,13 +598,6 @@ ${conciseReminder ? `- 系統提示：${conciseReminder}` : ''}
       }
 
       setCurrentRecordId(recordId);
-      setQuestionCount(0);
-      setCurrentStageIndex(0);
-      setSelectedQuestionSeed(null);
-      setPendingSeed(null);
-      answerAudioUrls.forEach((url) => URL.revokeObjectURL(url));
-      setAnswerAudioUrls([]);
-      setQaSummaries([]);
       console.log('✅ 已加载面试记录:', record.title);
     } catch (error) {
       console.error('加载面试记录失败:', error);
@@ -833,16 +672,11 @@ ${conciseReminder ? `- 系統提示：${conciseReminder}` : ''}
         feedback: evaluation.feedback || '暂无评价',
         strengths: Array.isArray(evaluation.strengths) ? evaluation.strengths : [],
         improvements: Array.isArray(evaluation.improvements) ? evaluation.improvements : [],
-        sample_answer: evaluation.sample_answer || '',
         details: evaluation.details || {},
       };
 
       setEvaluationResult(result);
-      localStorage.setItem(evaluationStorageKey, JSON.stringify({
-        ...result,
-        qaPairs,
-      }));
-      onNavigate("interview-evaluation");
+      setShowEvaluationDialog(true);
 
       // 保存面试记录（只在评分后保存）
       try {
@@ -902,9 +736,6 @@ ${conciseReminder ? `- 系統提示：${conciseReminder}` : ''}
         if (currentRecordId === recordId) {
           handleClearConversation();
         }
-        answerAudioUrls.forEach((url) => URL.revokeObjectURL(url));
-        setAnswerAudioUrls([]);
-        setQaSummaries([]);
         
         console.log('✅ 已删除面试记录:', recordId);
       } else {
@@ -922,22 +753,12 @@ ${conciseReminder ? `- 系統提示：${conciseReminder}` : ''}
   useEffect(() => {
     return () => {
       stopRecording();
-      answerAudioUrls.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [answerAudioUrls]);
+  }, []);
 
   const handleStopPlayback = () => {
     setStatus("已停止");
     setTimeout(() => setStatus("就緒"), 1000);
-  };
-
-  const currentStage = interviewStages[currentStageIndex];
-  const stageSeedOptions = interviewQuestionBank[currentStage.id] || [];
-
-  const handleAutoPickSeed = () => {
-    if (stageSeedOptions.length === 0) return;
-    const question = stageSeedOptions[Math.floor(Math.random() * stageSeedOptions.length)];
-    setSelectedQuestionSeed(question);
   };
 
   return (
@@ -996,55 +817,6 @@ ${conciseReminder ? `- 系統提示：${conciseReminder}` : ''}
             <div>
               <h1 className="text-[28px] md:text-[36px] text-gray-900 mb-2">AI 面試模擬系統</h1>
               <p className="text-[14px] md:text-[16px] text-gray-600">真實面試場景模擬 · 即時語音互動 · 智能評估反饋</p>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <span className="px-3 py-1 rounded-full bg-purple-100 text-purple-700 text-[12px] md:text-[13px] font-semibold">
-                  目前階段：{currentStage.label}
-                </span>
-                <span className="px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-[12px] md:text-[13px] font-semibold">
-                  階段問題：{questionCount + 1}
-                </span>
-                <span className="px-3 py-1 rounded-full bg-gray-100 text-gray-700 text-[12px] md:text-[13px]">
-                  進度 {currentStageIndex + 1} / {interviewStages.length}
-                </span>
-                <span className="px-3 py-1 rounded-full bg-orange-100 text-orange-700 text-[12px] md:text-[13px]">
-                  建議長度 ≤ {maxAnswerChars} 字
-                </span>
-              </div>
-              <div className="mt-2 space-y-2">
-                <p className="text-[12px] md:text-[13px] text-gray-500">
-                  {currentStage.goal}
-                </p>
-                {stageSeedOptions.length > 0 && (
-                  <div className="bg-white/60 border border-purple-100 rounded-xl p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-[12px] text-purple-700 font-semibold">題庫建議（可點選指定）：</p>
-                      <button
-                        type="button"
-                        onClick={handleAutoPickSeed}
-                        className="text-[12px] text-purple-600 hover:text-purple-800"
-                      >
-                        隨機挑一題
-                      </button>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {stageSeedOptions.map((question, index) => (
-                        <button
-                          key={`${currentStage.id}-${index}`}
-                          type="button"
-                          onClick={() => setSelectedQuestionSeed(question)}
-                          className={`px-3 py-1 rounded-full text-[12px] border transition-colors ${
-                            selectedQuestionSeed === question
-                              ? 'bg-purple-600 text-white border-purple-600'
-                              : 'bg-white text-purple-700 border-purple-200 hover:border-purple-400'
-                          }`}
-                        >
-                          {question}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
             </div>
             <button
               onClick={() => setShowInfo(!showInfo)}
@@ -1071,7 +843,7 @@ ${conciseReminder ? `- 系統提示：${conciseReminder}` : ''}
               <div className="space-y-2 text-sm text-purple-800">
                 <p><strong>🎤 真實語音識別 (SST)：</strong>使用百度語音識別API，將您的語音轉換為文字。支援中文普通話識別，即時語音轉文字，自動添加標點符號。</p>
                 <p><strong>🔊 真實語音合成 (TTS)：</strong>使用百度語音合成API，將AI回答轉換為語音。可調整語速、音調、音量，支援暫停調整功能，提供自然流暢的語音輸出。</p>
-                <p><strong>🤖 AI面試官：</strong>使用文心5.0 API進行智能對話，模擬真實面試場景。根據您的回答提出追問，提供專業面試建議。</p>
+                <p><strong>🤖 AI面試官：</strong>使用文心4.0 API進行智能對話，模擬真實面試場景。根據您的回答提出追問，提供專業面試建議。</p>
                 <p><strong>⚡ 性能指標監控：</strong>即時顯示ASR（語音識別）、LLM（AI對話）、TTS（語音合成）和端到端延遲，幫助您了解系統性能。</p>
                 <p><strong>💾 面試記錄管理：</strong>自動保存面試對話記錄，可查看歷史記錄。結束面試後可生成評估報告，包含分數、優點、改進建議。</p>
                 <p className="mt-3 text-xs text-purple-600"><strong>💡 提示：</strong>需要允許瀏覽器麥克風權限。建議在安靜環境中使用。首次使用需要配置百度API密鑰（在個人資料頁面配置）。</p>
@@ -1227,17 +999,10 @@ ${conciseReminder ? `- 系統提示：${conciseReminder}` : ''}
                       <option value="english">🇬🇧 英語</option>
                       <option value="cantonese">🇭🇰 粵語</option>
                     </select>
-                    <div className="mt-2 text-[12px] text-gray-500 bg-white/70 border border-gray-200 rounded-lg px-3 py-2">
-                      <p className="font-semibold text-gray-600 mb-1">目前模型資訊</p>
-                      <div className="space-y-0.5">
-                        <p>dev_pid：{recognitionModeConfig[recognitionMode]?.devPid || "1537"}</p>
-                        <p>模型：{recognitionModeConfig[recognitionMode]?.model || "語音近場識別模型"}</p>
-                        <p>標點：{recognitionModeConfig[recognitionMode]?.punctuation || "有標點"}</p>
-                        <p>備註：{recognitionModeConfig[recognitionMode]?.note || "支持自定義詞庫"}</p>
-                      </div>
-                    </div>
                   </div>
-                  <button
+                  <motion.button
+                    whileHover={isTTSPlaying ? {} : { scale: 1.05 }}
+                    whileTap={isTTSPlaying ? {} : { scale: 0.95 }}
                     onClick={handleStartRecording}
                     disabled={isTTSPlaying}
                     className={`sm:self-end px-6 md:px-8 py-3 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 text-[15px] md:text-[16px] ${
@@ -1248,15 +1013,23 @@ ${conciseReminder ? `- 系統提示：${conciseReminder}` : ''}
                         : "bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white shadow-purple-200"
                     }`}
                   >
-                    <span className="flex items-center gap-2" data-state={isTTSPlaying ? "tts" : isRecording ? "recording" : "idle"}>
-                      <Volume2 className={`w-5 h-5 ${isTTSPlaying ? 'animate-pulse' : 'hidden'}`} />
-                      <MicOff className={`w-5 h-5 ${isRecording && !isTTSPlaying ? '' : 'hidden'}`} />
-                      <Mic className={`w-5 h-5 ${!isRecording && !isTTSPlaying ? '' : 'hidden'}`} />
-                      <span className={isTTSPlaying ? '' : 'hidden'}>語音播放中...</span>
-                      <span className={isRecording && !isTTSPlaying ? '' : 'hidden'}>停止錄音</span>
-                      <span className={!isRecording && !isTTSPlaying ? '' : 'hidden'}>開始錄音</span>
-                    </span>
-                  </button>
+                    {isTTSPlaying ? (
+                      <>
+                        <Volume2 className="w-5 h-5 animate-pulse" />
+                        語音播放中...
+                      </>
+                    ) : isRecording ? (
+                      <>
+                        <MicOff className="w-5 h-5" />
+                        停止錄音
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="w-5 h-5" />
+                        開始錄音
+                      </>
+                    )}
+                  </motion.button>
                 </div>
 
                 {/* Conversation Area */}
@@ -1541,10 +1314,10 @@ ${conciseReminder ? `- 系統提示：${conciseReminder}` : ''}
                           }`}
                           onClick={() => {
                             loadInterviewRecord(record.id);
+                            // 如果有评分，显示评分对话框
                             if (record.metadata?.evaluation) {
                               setEvaluationResult(record.metadata.evaluation);
-                              localStorage.setItem(evaluationStorageKey, JSON.stringify(record.metadata.evaluation));
-                              onNavigate("interview-evaluation");
+                              setShowEvaluationDialog(true);
                             }
                           }}
                         >
@@ -1676,10 +1449,10 @@ ${conciseReminder ? `- 系統提示：${conciseReminder}` : ''}
                             onClick={() => {
                               loadInterviewRecord(record.id);
                               setSidebarOpen(false);
+                              // 如果有评分，显示评分对话框
                               if (record.metadata?.evaluation) {
                                 setEvaluationResult(record.metadata.evaluation);
-                                localStorage.setItem(evaluationStorageKey, JSON.stringify(record.metadata.evaluation));
-                                onNavigate("interview-evaluation");
+                                setShowEvaluationDialog(true);
                               }
                             }}
                           >
@@ -1798,6 +1571,204 @@ ${conciseReminder ? `- 系統提示：${conciseReminder}` : ''}
           box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
         }
       `}</style>
+
+      {/* 评分结果对话框 */}
+      <AnimatePresence>
+        {showEvaluationDialog && evaluationResult && (
+          <>
+            {/* 遮罩层 */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowEvaluationDialog(false)}
+              className="fixed inset-0 bg-black/50 z-50"
+            />
+            
+            {/* 对话框 */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="bg-white rounded-3xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+                {/* 对话框头部 */}
+                <div className="bg-gradient-to-r from-purple-600 to-blue-600 p-6 rounded-t-3xl">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
+                        <Award className="w-6 h-6 text-white" />
+                      </div>
+                      <div>
+                        <h2 className="text-[24px] font-bold text-white">面試評分結果</h2>
+                        <p className="text-[14px] text-white/80">DeepSeek AI 專業評估</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setShowEvaluationDialog(false)}
+                      className="w-8 h-8 flex items-center justify-center bg-white/20 hover:bg-white/30 rounded-full text-white transition-colors"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* 对话框内容 */}
+                <div className="p-6 space-y-6">
+                  {/* 总分 */}
+                  <div className="text-center border-b border-gray-200 pb-6">
+                    <div className="inline-flex items-center justify-center w-28 h-28 rounded-full bg-gradient-to-br from-purple-100 to-blue-100 mb-4">
+                      <span className="text-[42px] font-bold text-purple-600">
+                        {evaluationResult.score}
+                      </span>
+                      <span className="text-[20px] text-purple-600 ml-1">分</span>
+                    </div>
+                    <div className="w-full max-w-xs mx-auto bg-gray-200 rounded-full h-3 mb-3">
+                      <div
+                        className={`h-3 rounded-full transition-all ${
+                          evaluationResult.score >= 80
+                            ? 'bg-gradient-to-r from-green-500 to-green-600'
+                            : evaluationResult.score >= 60
+                            ? 'bg-gradient-to-r from-yellow-500 to-yellow-600'
+                            : evaluationResult.score >= 40
+                            ? 'bg-gradient-to-r from-orange-500 to-orange-600'
+                            : 'bg-gradient-to-r from-red-500 to-red-600'
+                        }`}
+                        style={{ width: `${Math.min(evaluationResult.score, 100)}%` }}
+                      />
+                    </div>
+                    <p className={`text-[15px] font-semibold ${
+                      evaluationResult.score >= 80
+                        ? 'text-green-600'
+                        : evaluationResult.score >= 60
+                        ? 'text-yellow-600'
+                        : evaluationResult.score >= 40
+                        ? 'text-orange-600'
+                        : 'text-red-600'
+                    }`}>
+                      {evaluationResult.score >= 80
+                        ? '優秀'
+                        : evaluationResult.score >= 60
+                        ? '良好'
+                        : evaluationResult.score >= 40
+                        ? '一般'
+                        : '需要大幅改進'}
+                    </p>
+                  </div>
+
+                  {/* 详细评分 */}
+                  {evaluationResult.details && Object.keys(evaluationResult.details).length > 0 && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {Object.entries(evaluationResult.details).map(([key, value]: [string, any]) => {
+                        const score = Number(value) || 0;
+                        const maxScore = 25;
+                        const percentage = (score / maxScore) * 100;
+                        return (
+                          <div key={key} className="bg-white border-2 border-gray-200 rounded-xl p-4 text-center hover:border-purple-300 transition-colors">
+                            <p className="text-[13px] text-gray-600 mb-3 font-medium">
+                              {key === 'expression' ? '表達能力' :
+                               key === 'professional' ? '專業素養' :
+                               key === 'communication' ? '溝通能力' :
+                               key === 'comprehensive' ? '綜合素質' : key}
+                            </p>
+                            <div className="mb-2">
+                              <p className={`text-[28px] font-bold ${
+                                score === 0 ? 'text-red-600' :
+                                score < 10 ? 'text-orange-600' :
+                                score < 15 ? 'text-yellow-600' :
+                                'text-green-600'
+                              }`}>
+                                {score}
+                              </p>
+                              <p className="text-[11px] text-gray-400">/ {maxScore}</p>
+                            </div>
+                            <div className="w-full bg-gray-100 rounded-full h-1.5">
+                              <div
+                                className={`h-1.5 rounded-full transition-all ${
+                                  score === 0 ? 'bg-red-500' :
+                                  score < 10 ? 'bg-orange-500' :
+                                  score < 15 ? 'bg-yellow-500' :
+                                  'bg-green-500'
+                                }`}
+                                style={{ width: `${percentage}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* 总体评价 */}
+                  <div className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-xl p-5">
+                    <h3 className="text-[18px] font-semibold text-gray-900 mb-3">總體評價</h3>
+                    <p className="text-[15px] text-gray-700 leading-relaxed whitespace-pre-wrap">
+                      {evaluationResult.feedback}
+                    </p>
+                  </div>
+
+                  {/* 优势 - 只在有优势时显示 */}
+                  {evaluationResult.strengths && evaluationResult.strengths.length > 0 && (
+                    <div className="bg-green-50 rounded-xl p-5 border border-green-200">
+                      <h3 className="text-[18px] font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                        <CheckCircle className="w-5 h-5 text-green-600" />
+                        優勢表現
+                      </h3>
+                      <ul className="space-y-2">
+                        {evaluationResult.strengths.map((strength, index) => (
+                          <li key={index} className="flex items-start gap-2 text-[15px] text-gray-700">
+                            <span className="text-green-600 mt-1 font-bold">✓</span>
+                            <span>{strength}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* 改进建议 */}
+                  {evaluationResult.improvements && evaluationResult.improvements.length > 0 && (
+                    <div className="bg-orange-50 rounded-xl p-5 border border-orange-200">
+                      <h3 className="text-[18px] font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                        <Sparkles className="w-5 h-5 text-orange-600" />
+                        改進建議
+                      </h3>
+                      <ul className="space-y-2.5">
+                        {evaluationResult.improvements.map((improvement, index) => (
+                          <li key={index} className="flex items-start gap-2 text-[15px] text-gray-700">
+                            <span className="text-orange-600 mt-1 font-bold">•</span>
+                            <span>{improvement}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* 操作按钮 */}
+                  <div className="flex gap-3 pt-4">
+                    <Button
+                      onClick={() => setShowEvaluationDialog(false)}
+                      className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700"
+                    >
+                      關閉
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        // 评分已经在生成时自动保存了，这里只是关闭对话框
+                        setShowEvaluationDialog(false);
+                      }}
+                      className="flex-1 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white"
+                    >
+                      關閉
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

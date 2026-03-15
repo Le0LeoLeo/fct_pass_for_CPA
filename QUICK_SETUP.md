@@ -43,8 +43,8 @@ psql "你的连接字符串" -f RUN_THIS_IN_SUPABASE_DASHBOARD.sql
 3. 应该看到：
    - `✅ api_configs 表可訪問`
    - `✅ 獲取 API 配置成功`
-   - `✅ 文心 API 已就緒`
-4. 发送一条消息测试，应该会调用真实的文心 API
+   - `✅ 文心5.0 API 已就緒`
+4. 发送一条消息测试，应该会调用真实的文心5.0 API
 
 ## 如果还有问题
 
